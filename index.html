@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Pyper's สต๊อก</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0f1115; --card:#171a21; --card2:#1e222b; --line:#2a2f3a;
+  --tx:#e9ecf1; --mut:#8e97a8; --acc:#e8734a; --acc2:#f29470;
+  --ok:#3fb27f; --bad:#e2574c; --warn:#e0a63c;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--tx);
+  font-family:'IBM Plex Sans Thai',system-ui,sans-serif;font-size:16px;line-height:1.55}
+body{padding-bottom:env(safe-area-inset-bottom)}
+#app{max-width:680px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+.hd{position:sticky;top:0;z-index:20;background:rgba(15,17,21,.94);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);padding:10px 14px;display:flex;align-items:center;gap:10px}
+.hd h1{font-size:17px;margin:0;font-weight:600;flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hd .sub{font-size:12px;color:var(--mut);font-weight:400}
+.back{background:none;border:none;color:var(--acc);font-size:24px;padding:0 6px 0 0;cursor:pointer;line-height:1}
+.who{font-size:12px;color:var(--mut);text-align:right;white-space:nowrap}
+.who b{display:block;color:var(--tx);font-size:13px;font-weight:600}
+main{flex:1;padding:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h3{margin:0 0 10px;font-size:15px;font-weight:600}
+.mut{color:var(--mut)}
+.sm{font-size:13px}
+.xs{font-size:12px}
+.row{display:flex;align-items:center;gap:10px}
+.sp{justify-content:space-between}
+label.fl{display:block;font-size:13px;color:var(--mut);margin:0 0 5px}
+input,select,textarea{width:100%;background:var(--card2);border:1px solid var(--line);color:var(--tx);
+  border-radius:10px;padding:12px;font-size:17px;font-family:inherit;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--acc)}
+input[type=number]{text-align:right;font-variant-numeric:tabular-nums}
+select{-webkit-appearance:none;appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='9'><path d='M1 1l6 6 6-6' stroke='%238e97a8' stroke-width='2' fill='none'/></svg>");
+  background-repeat:no-repeat;background-position:right 14px center;padding-right:38px}
+.fld{margin-bottom:12px}
+.btn{display:block;width:100%;background:var(--acc);color:#fff;border:none;border-radius:12px;
+  padding:15px;font-size:17px;font-weight:600;font-family:inherit;cursor:pointer}
+.btn:active{background:var(--acc2)}
+.btn[disabled]{opacity:.45}
+.btn.gh{background:transparent;border:1px solid var(--line);color:var(--tx);font-weight:500}
+.btn.sm2{padding:10px;font-size:14px}
+.tile{display:flex;align-items:center;gap:13px;background:var(--card);border:1px solid var(--line);
+  border-radius:14px;padding:15px;margin-bottom:10px;cursor:pointer;width:100%;text-align:right;
+  color:var(--tx);font-family:inherit}
+.tile:active{background:var(--card2)}
+.tile .ic{font-size:25px;width:34px;text-align:center;flex-shrink:0}
+.tile .tx{flex:1;text-align:left;min-width:0}
+.tile .tx b{display:block;font-size:16px;font-weight:600}
+.tile .tx span{font-size:12.5px;color:var(--mut)}
+.tile .ar{color:var(--mut);font-size:20px}
+.badge{background:var(--acc);color:#fff;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:600}
+.lst{border-top:1px solid var(--line)}
+.li{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+.li .nm{flex:1;min-width:0;font-size:15px}
+.li .nm small{display:block;color:var(--mut);font-size:11.5px}
+.li input{width:96px;padding:9px;font-size:16px}
+.li .u{width:36px;font-size:12px;color:var(--mut);text-align:left}
+.pill{display:inline-block;background:var(--card2);border:1px solid var(--line);border-radius:999px;
+  padding:3px 11px;font-size:12.5px;color:var(--mut);margin:0 0 0 6px}
+.note{background:rgba(232,115,74,.09);border:1px solid rgba(232,115,74,.3);border-radius:10px;
+  padding:10px 12px;font-size:13px;color:var(--acc2);margin-bottom:12px}
+.err{background:rgba(226,87,76,.12);border:1px solid rgba(226,87,76,.4);color:#ffb3ad}
+.okbox{background:rgba(63,178,127,.1);border:1px solid rgba(63,178,127,.35);color:#9fe3c2}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kbd{font-variant-numeric:tabular-nums;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--mut);font-weight:500;font-size:12px;padding:6px 4px;border-bottom:1px solid var(--line)}
+td{padding:8px 4px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+td.n,th.n{text-align:right}
+.big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.pin{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-top:14px}
+.pin button{background:var(--card2);border:1px solid var(--line);color:var(--tx);border-radius:14px;
+  padding:17px 0;font-size:24px;font-weight:600;font-family:inherit;cursor:pointer}
+.pin button:active{background:var(--acc)}
+.dots{display:flex;gap:12px;justify-content:center;margin:18px 0 4px}
+.dots i{width:14px;height:14px;border-radius:50%;background:var(--card2);border:1px solid var(--line)}
+.dots i.on{background:var(--acc);border-color:var(--acc)}
+.names{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.names button{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:13px;
+  padding:16px 8px;font-size:17px;font-weight:600;font-family:inherit;cursor:pointer}
+.names button:active{background:var(--acc)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:99;
+  background:#22262f;border:1px solid var(--line);border-radius:12px;padding:13px 18px;font-size:15px;
+  max-width:92vw;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.toast.ok{border-color:var(--ok)} .toast.bad{border-color:var(--bad)}
+.ldg{text-align:center;color:var(--mut);padding:44px 0}
+.ph{width:100%;border-radius:12px;margin-top:10px;display:block}
+hr.d{border:none;border-top:1px solid var(--line);margin:14px 0}
+.tot{display:flex;justify-content:space-between;align-items:baseline;background:var(--card2);
+  border-radius:11px;padding:11px 13px;margin-top:10px}
+.diffneg{color:var(--bad);font-weight:600}
+.diffpos{color:var(--warn);font-weight:600}
+.diffz{color:var(--ok);font-weight:600}
+</style>
+</head>
+<body>
+<div id="app"><div class="ldg">กำลังเปิดระบบ…</div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+/* ============================================================
+   Pyper's · ระบบสต๊อก
+   หน้าเดียว ใช้ได้ทั้งโรงงาน สาขา และเจ้าของ · สิทธิ์คุมด้วย RLS ที่ฐานข้อมูล
+   ============================================================ */
+const SB_URL = 'https://wrkssltjzqtwqfrnnajv.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indya3NzbHRqenF0d3Fmcm5uYWp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNTQzNTAsImV4cCI6MjEwMTkzMDM1MH0.EMsTd0xa7XoJTaOb2M-yS-kIBsFIAOfyV6eFpLYC2Rw';
+const sb = window.supabase.createClient(SB_URL, SB_KEY, { db:{schema:'stock'}, auth:{persistSession:true} });
+
+const $ = s => document.querySelector(s);
+const app = $('#app');
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const num = v => { const n = parseFloat(String(v).replace(/,/g,'')); return isFinite(n)?n:0; };
+const fmt = (n,d=0) => (Math.round(num(n)*10**d)/10**d).toLocaleString('th-TH',{maximumFractionDigits:d});
+const today = () => new Date().toLocaleDateString('sv-SE');
+const LOCKMIN = 15, MAXTRY = 5;
+
+let S = { me:null, loc:null, M:null, onhand:new Map(), set:{} };
+
+function toast(msg, kind='ok'){
+  const t = document.createElement('div');
+  t.className = 'toast '+kind; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), kind==='bad'?5200:2600);
+}
+function busy(btn, on, label){
+  if(!btn) return;
+  if(on){ btn.dataset.lb = btn.textContent; btn.textContent='กำลังบันทึก…'; btn.disabled=true; }
+  else { btn.textContent = label || btn.dataset.lb || 'บันทึก'; btn.disabled=false; }
+}
+function errMsg(e){
+  const m = (e && (e.message || e.error_description || e.msg)) || String(e);
+  if(/row-level security/i.test(m)) return 'บัญชีนี้ไม่มีสิทธิ์บันทึกที่นี่';
+  if(/Invalid login/i.test(m)) return 'รหัสไม่ถูกต้อง';
+  if(/Failed to fetch|NetworkError/i.test(m)) return 'เน็ตหลุด — ลองใหม่อีกครั้ง';
+  return m;
+}
+
+/* ---------------- หน้าจอ ---------------- */
+const SCREENS = [
+  {id:'make',  ic:'🥣', nm:'ทำไส้',              sb:'บันทึกไส้ที่ทำได้วันนี้ (กก.)',        at:'factory'},
+  {id:'roll',  ic:'🌯', nm:'ม้วน',               sb:'เบิกไส้ · ม้วนได้กี่ชิ้น · ใครม้วน',   at:'factory'},
+  {id:'pack',  ic:'🛍️', nm:'บรรจุถุง',          sb:'นับที่ม้วนแล้ว → แพ็คเป็นถุง',          at:'factory'},
+  {id:'sauce', ic:'🥫', nm:'ผสมและบรรจุซอส',    sb:'ซอสดิบ (ถุง) → กระปุก',                 at:'factory'},
+  {id:'ship',  ic:'🚚', nm:'จัดของส่งสาขา',     sb:'ระบบคิดให้ว่าส่งอะไรกี่ถุง',            at:'factory'},
+  {id:'count', ic:'📋', nm:'นับสต๊อกโรงงาน',    sb:'นับของจริง แล้วเทียบกับที่ควรเหลือ',   at:'factory'},
+  {id:'waste', ic:'🗑️', nm:'แจ้งของเสีย',       sb:'ต้องถ่ายรูปหลักฐานทุกครั้ง',            at:'factory'},
+
+  {id:'count', ic:'📋', nm:'นับสต๊อกประจำวัน',  sb:'นับถุงที่ยังไม่แกะ + ชิ้นที่แกะแล้ว',  at:'branch'},
+  {id:'recv',  ic:'📦', nm:'รับของ',             sb:'ตรวจของที่โรงงาน/สาขาอื่นส่งมา',       at:'branch'},
+  {id:'b2b',   ic:'↔️', nm:'ส่งของไปสาขาอื่น',  sb:'ออกใบส่งของระหว่างสาขา',                at:'branch'},
+  {id:'waste', ic:'🗑️', nm:'แจ้งของเสีย',       sb:'ต้องถ่ายรูปหลักฐานทุกครั้ง',            at:'branch'},
+];
+
+/* ---------------- เริ่มต้น ---------------- */
+(async function boot(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) return viewLogin();
+  await loadMe();
+})();
+
+async function loadMe(){
+  app.innerHTML = '<div class="ldg">กำลังโหลดข้อมูล…</div>';
+  try{
+    const { data:me, error } = await sb.rpc('fn_me');
+    if(error) throw error;
+    if(!me || !me.length){ await sb.auth.signOut(); return viewLogin('บัญชีนี้ยังไม่ได้ผูกกับพนักงาน'); }
+    S.me = me[0];
+    await loadMaster();
+    pickLocation();
+  }catch(e){ app.innerHTML=''; toast(errMsg(e),'bad'); viewLogin(); }
+}
+
+async function loadMaster(){
+  const [br, it, pk, wr, em, st] = await Promise.all([
+    sb.from('branches').select('id,code,name,kind,opened_on,closed_on').order('kind').order('name'),
+    sb.from('stock_items').select('id,level,label,unit_base,unit_major,at_factory_only,active,'+
+       'products(id,code,name,sort_order,active,categories(code,name,sort_order,unit_base,unit_major))'),
+    sb.from('pack_sizes').select('stock_item_id,base_per_major,effective_from,effective_to'),
+    sb.from('waste_reasons').select('id,code,name,sort_order').eq('active',true).order('sort_order'),
+    sb.from('employees').select('id,nickname,job_type').eq('active',true).order('nickname'),
+    sb.from('settings').select('key,value'),
+  ]);
+  for(const r of [br,it,pk,wr,em,st]) if(r.error) throw r.error;
+
+  const d = today();
+  const packs = new Map();
+  pk.data.forEach(p=>{ if(d>=p.effective_from && (!p.effective_to || d<p.effective_to)) packs.set(p.stock_item_id, num(p.base_per_major)); });
+
+  const items = it.data.filter(x=>x.active && x.products && x.products.active).map(x=>({
+    id:x.id, level:x.level, label:x.label, ub:x.unit_base, um:x.unit_major,
+    fac:x.at_factory_only, pcode:x.products.code, pname:x.products.name,
+    psort:x.products.sort_order, cat:x.products.categories.code,
+    catname:x.products.categories.name, csort:x.products.categories.sort_order,
+    bpm: packs.get(x.id) || 1,
+  })).sort((a,b)=> a.csort-b.csort || a.psort-b.psort || a.label.localeCompare(b.label,'th'));
+
+  S.set = Object.fromEntries(st.data.map(r=>[r.key, r.value]));
+  S.M = {
+    branches: br.data.filter(b=>!b.closed_on || b.closed_on > d),
+    allBranches: br.data,
+    items, reasons: wr.data, emps: em.data,
+  };
+}
+
+async function loadOnHand(branchId){
+  const { data, error } = await sb.from('v_on_hand').select('stock_item_id,qty_base').eq('branch_id', branchId);
+  if(error) throw error;
+  S.onhand = new Map(data.map(r=>[r.stock_item_id, num(r.qty_base)]));
+}
+const oh = id => S.onhand.get(id) || 0;
+const item = id => S.M.items.find(x=>x.id===id);
+
+/* ---------------- ล็อกอิน ---------------- */
+function lockKey(c){ return 'pl_'+c; }
+function lockLeft(c){
+  try{
+    const r = JSON.parse(localStorage.getItem(lockKey(c))||'{}');
+    if(r.until && r.until > Date.now()) return Math.ceil((r.until-Date.now())/60000);
+  }catch(e){}
+  return 0;
+}
+function lockBump(c){
+  let r={}; try{ r = JSON.parse(localStorage.getItem(lockKey(c))||'{}'); }catch(e){}
+  r.n = (r.n||0)+1;
+  if(r.n >= MAXTRY){ r.until = Date.now()+LOCKMIN*60000; r.n = 0; }
+  localStorage.setItem(lockKey(c), JSON.stringify(r));
+  return r.until ? LOCKMIN : MAXTRY - r.n;
+}
+function lockClear(c){ localStorage.removeItem(lockKey(c)); }
+
+async function viewLogin(msg){
+  app.innerHTML = `
+  <div class="hd"><h1>Pyper's<span class="sub"> · ระบบสต๊อก</span></h1></div>
+  <main>
+    ${msg?`<div class="note err">${esc(msg)}</div>`:''}
+    <div class="card"><h3>เลือกชื่อของคุณ</h3>
+      <div id="nm" class="names"><div class="ldg sm">กำลังโหลด…</div></div>
+      <hr class="d">
+      <button class="btn gh sm2" id="byemail">เจ้าของ · เข้าด้วยอีเมล</button>
+    </div>
+  </main>`;
+  $('#byemail').onclick = viewEmailLogin;
+  const { data, error } = await sb.schema('public').rpc('fn_login_names');
+  if(error){ $('#nm').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  $('#nm').innerHTML = data.map(r=>`<button data-c="${esc(r.login_code)}" data-n="${esc(r.nickname)}">${esc(r.nickname)}</button>`).join('');
+  $('#nm').onclick = e => { const b = e.target.closest('button'); if(b) viewPin(b.dataset.c, b.dataset.n); };
+}
+
+function viewEmailLogin(){
+  app.innerHTML = `
+  <div class="hd"><button class="back" id="bk">‹</button><h1>เข้าด้วยอีเมล</h1></div>
+  <main><div class="card">
+    <div class="fld"><label class="fl">อีเมล</label><input id="em" type="email" inputmode="email" autocomplete="username" style="text-align:left"></div>
+    <div class="fld"><label class="fl">รหัสผ่าน</label><input id="pw" type="password" autocomplete="current-password" style="text-align:left"></div>
+    <button class="btn" id="go">เข้าระบบ</button>
+  </div></main>`;
+  $('#bk').onclick = ()=>viewLogin();
+  $('#go').onclick = async (e)=>{
+    busy(e.target, true);
+    const { error } = await sb.auth.signInWithPassword({ email:$('#em').value.trim(), password:$('#pw').value });
+    busy(e.target, false, 'เข้าระบบ');
+    if(error) return toast(errMsg(error),'bad');
+    loadMe();
+  };
+}
+
+function viewPin(code, nick){
+  const left = lockLeft(code);
+  if(left) return toast(`ใส่รหัสผิดหลายครั้ง · รออีก ${left} นาที`,'bad');
+  let pin = '';
+  app.innerHTML = `
+  <div class="hd"><button class="back" id="bk">‹</button><h1>${esc(nick)}<span class="sub"> · ใส่รหัส 6 หลัก</span></h1></div>
+  <main><div class="card">
+    <div class="dots" id="dots">${'<i></i>'.repeat(6)}</div>
+    <div class="xs mut" style="text-align:center" id="hint">ใส่ผิดเกิน ${MAXTRY} ครั้ง จะล็อก ${LOCKMIN} นาที</div>
+    <div class="pin" id="kp">
+      ${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-k="${n}">${n}</button>`).join('')}
+      <button data-k="c">✕</button><button data-k="0">0</button><button data-k="b">⌫</button>
+    </div>
+  </div></main>`;
+  $('#bk').onclick = ()=>viewLogin();
+  const draw = ()=>{ $('#dots').innerHTML = [0,1,2,3,4,5].map(i=>`<i class="${i<pin.length?'on':''}"></i>`).join(''); };
+  $('#kp').onclick = async e => {
+    const b = e.target.closest('button'); if(!b) return;
+    const k = b.dataset.k;
+    if(k==='b') pin = pin.slice(0,-1);
+    else if(k==='c') pin = '';
+    else if(pin.length<6) pin += k;
+    draw();
+    if(pin.length===6){
+      $('#hint').textContent = 'กำลังตรวจรหัส…';
+      const { error } = await sb.auth.signInWithPassword({ email: code+'@pypers.local', password: pin });
+      if(error){
+        pin=''; draw();
+        const n = lockBump(code);
+        const l = lockLeft(code);
+        $('#hint').textContent = l ? `ถูกล็อก ${l} นาที` : `รหัสไม่ถูกต้อง · เหลืออีก ${n} ครั้ง`;
+        if(l) setTimeout(()=>viewLogin(),1200);
+        return;
+      }
+      lockClear(code);
+      loadMe();
+    }
+  };
+}
+
+/* ---------------- เลือกที่ทำงาน ---------------- */
+function pickLocation(){
+  const r = S.me.role;
+  const cand = r==='factory' ? S.M.branches.filter(b=>b.kind==='factory')
+             : r==='branch'  ? S.M.branches.filter(b=>b.kind!=='factory')
+             : S.M.branches;
+  if(!cand.length){ app.innerHTML=''; return toast('ไม่มีสาขาที่เปิดอยู่','bad'); }
+  const saved = localStorage.getItem('loc');
+  const hit = cand.find(b=>b.id===saved);
+  if(cand.length===1) return setLoc(cand[0]);
+  if(hit && r!=='owner') return setLoc(hit);
+  app.innerHTML = `
+  <div class="hd"><h1>สวัสดี ${esc(S.me.nickname)}</h1><div class="who">${roleTh(r)}</div></div>
+  <main>
+    <div class="note">เลือกว่าตอนนี้คุณอยู่ที่ไหน · เปลี่ยนทีหลังได้จากปุ่มมุมบน</div>
+    ${cand.map(b=>`<button class="tile" data-id="${b.id}">
+      <div class="ic">${b.kind==='factory'?'🏭':(b.kind==='popup'?'⛺':'🏬')}</div>
+      <div class="tx"><b>${esc(b.name)}</b><span>${b.kind==='factory'?'โรงงาน':(b.kind==='popup'?'ป๊อปอัพ':'สาขา')}</span></div>
+      <div class="ar">›</div></button>`).join('')}
+    <button class="btn gh sm2" id="out" style="margin-top:14px">ออกจากระบบ</button>
+  </main>`;
+  app.querySelector('main').onclick = e => {
+    const t = e.target.closest('.tile'); if(!t) return;
+    setLoc(cand.find(b=>b.id===t.dataset.id));
+  };
+  $('#out').onclick = signOut;
+}
+function roleTh(r){ return r==='owner'?'เจ้าของ':r==='factory'?'โรงงาน':'สาขา'; }
+async function setLoc(b){
+  S.loc = b; localStorage.setItem('loc', b.id);
+  try{ await loadOnHand(b.id); }catch(e){ toast(errMsg(e),'bad'); }
+  viewHome();
+}
+async function signOut(){ localStorage.removeItem('loc'); await sb.auth.signOut(); viewLogin(); }
+
+/* ---------------- หน้าหลัก ---------------- */
+function header(title, sub, onBack){
+  return `<div class="hd">
+    ${onBack?'<button class="back" id="_bk">‹</button>':''}
+    <h1>${esc(title)}${sub?`<span class="sub"> · ${esc(sub)}</span>`:''}</h1>
+    <div class="who"><b>${esc(S.me.nickname)}</b>${esc(S.loc?S.loc.name:'')}</div>
+  </div>`;
+}
+function wire(onBack){ const b=$('#_bk'); if(b) b.onclick = onBack; }
+
+async function viewHome(){
+  const at = S.loc.kind==='factory' ? 'factory' : 'branch';
+  const list = SCREENS.filter(s=>s.at===at);
+  let nInbound = 0;
+  if(at==='branch'){
+    try{ const { data } = await sb.rpc('fn_inbound',{p_branch:S.loc.id}); nInbound = (data||[]).length; }catch(e){}
+  }
+  const canSwitch = S.me.role==='owner' || S.M.branches.filter(b=> S.me.role==='factory'?b.kind==='factory':b.kind!=='factory').length>1;
+  app.innerHTML = header("Pyper's สต๊อก") + `<main>
+    <div class="card" style="padding:12px 14px">
+      <div class="row sp">
+        <div><div class="xs mut">ตอนนี้อยู่ที่</div><b>${esc(S.loc.name)}</b></div>
+        ${canSwitch?'<button class="btn gh sm2" id="sw" style="width:auto;padding:8px 14px">เปลี่ยน</button>':''}
+      </div>
+    </div>
+    ${list.map(s=>`<button class="tile" data-go="${s.id}">
+      <div class="ic">${s.ic}</div>
+      <div class="tx"><b>${esc(s.nm)}${s.id==='recv'&&nInbound?` <span class="badge">${nInbound}</span>`:''}</b><span>${esc(s.sb)}</span></div>
+      <div class="ar">›</div></button>`).join('')}
+    ${S.me.role==='owner'?`<button class="tile" data-go="dash">
+      <div class="ic">📊</div><div class="tx"><b>ภาพรวมทั้งบริษัท</b><span>ของคงเหลือทุกที่ แยกทุกไส้</span></div><div class="ar">›</div></button>`:''}
+    <button class="btn gh sm2" id="out" style="margin-top:16px">ออกจากระบบ</button>
+  </main>`;
+  if($('#sw')) $('#sw').onclick = ()=>{ localStorage.removeItem('loc'); pickLocation(); };
+  $('#out').onclick = signOut;
+  app.querySelector('main').onclick = e => {
+    const t = e.target.closest('[data-go]'); if(!t) return;
+    ({make:scMake, roll:scRoll, pack:scPack, sauce:scSauce, ship:scShip,
+      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, dash:scDash})[t.dataset.go]();
+  };
+}
+
+/* ---------------- ชิ้นส่วนที่ใช้ซ้ำ ---------------- */
+function dateField(id){
+  return `<div class="fld"><label class="fl">วันที่</label><input id="${id}" type="date" value="${today()}"></div>`;
+}
+function lineRow(it, opts={}){
+  const o = opts.showOh ? `<small>มีอยู่ ${fmt(oh(it.id), it.ub==='กก.'?1:0)} ${esc(it.ub)}</small>` : '';
+  return `<div class="li">
+    <div class="nm">${esc(opts.label||it.label)}${o}</div>
+    <input type="number" inputmode="decimal" step="any" min="0" data-item="${it.id}" placeholder="0">
+    <div class="u">${esc(it.ub)}</div>
+  </div>`;
+}
+function collect(sel){
+  return [...document.querySelectorAll(sel+' input[data-item]')]
+    .map(i=>({item:i.dataset.item, qty:num(i.value)}))
+    .filter(r=>r.qty>0);
+}
+async function done(msg){
+  toast(msg,'ok');
+  await loadOnHand(S.loc.id);
+  viewHome();
+}
+
+/* --- ย่อรูปก่อนอัป --- */
+function shrink(file, max=1280, q=.72){
+  return new Promise((res,rej)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const sc = Math.min(1, max/Math.max(img.width,img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width*sc); c.height = Math.round(img.height*sc);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      c.toBlob(b=> b?res(b):rej(new Error('ย่อรูปไม่สำเร็จ')), 'image/jpeg', q);
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = ()=>rej(new Error('เปิดรูปไม่ได้'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+async function upPhoto(file){
+  const blob = await shrink(file);
+  const path = `${S.loc.code}/${today()}/${Date.now()}-${Math.random().toString(36).slice(2,7)}.jpg`;
+  const { error } = await sb.storage.from('photos').upload(path, blob, { contentType:'image/jpeg' });
+  if(error) throw error;
+  return path;
+}
+
+/* ============================================================
+   1 · ทำไส้
+   ============================================================ */
+function scMake(){
+  const its = S.M.items.filter(x=>x.level==='filling');
+  app.innerHTML = header('ทำไส้','โรงงาน', viewHome) + `<main>
+    <div class="note">กรอกเฉพาะไส้ที่ทำเสร็จวันนี้ · ช่องที่ไม่ได้ทำ เว้นว่างไว้</div>
+    ${dateField('d')}
+    <div class="card"><h3>ไส้ที่ทำได้ (กก.)</h3><div class="lst" id="ls">
+      ${its.map(x=>lineRow(x,{label:x.pname, showOh:true})).join('')}
+    </div></div>
+    <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
+    <button class="btn" id="save">บันทึก</button>
+  </main>`;
+  wire(viewHome);
+  $('#save').onclick = async e=>{
+    const rows = collect('#ls');
+    if(!rows.length) return toast('ยังไม่ได้กรอกจำนวน','bad');
+    busy(e.target,true);
+    const { error } = await sb.rpc('fn_save_production',{
+      p_kind:'make_filling', p_branch:S.loc.id, p_on:$('#d').value,
+      p_note:$('#nt').value, p_outputs:rows
+    });
+    busy(e.target,false,'บันทึก');
+    if(error) return toast(errMsg(error),'bad');
+    done(`บันทึกไส้ ${rows.length} รายการแล้ว`);
+  };
+}
+
+/* ============================================================
+   2 · ม้วน
+   ============================================================ */
+function scRoll(){
+  const wips = S.M.items.filter(x=>x.level==='wip');
+  const fill = p => S.M.items.find(x=>x.level==='filling' && x.pcode===p);
+  let rollers = [{by:'',qty:''}];
+
+  const render = ()=>{
+    const w = item($('#fv').value);
+    const f = fill(w.pcode);
+    app.querySelector('#body').innerHTML = boxes(f);
+    bind(f, w);
+  };
+  const boxes = f => `
+    <div class="card"><h3>เบิกไส้${esc(f.pname)}</h3>
+      <div class="xs mut" style="margin:-4px 0 10px">คลังมี ${fmt(oh(f.id),1)} กก. · 1 กล่อง = ${fmt(f.bpm,1)} กก.</div>
+      <div class="grid3">
+        <div><label class="fl">กล่องเต็ม</label><input id="q_full" type="number" inputmode="numeric" min="0" step="1" placeholder="0"></div>
+        <div><label class="fl">เศษ (กก.)</label><input id="q_part" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>
+        <div><label class="fl">คืนคลัง (กก.)</label><input id="q_ret" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>
+      </div>
+      <div class="tot"><span class="sm mut">ไส้ที่ใช้จริง</span><span class="big" id="used">0 <span class="sm mut">กก.</span></span></div>
+    </div>
+    <div class="card"><h3>ม้วนได้กี่ชิ้น · ใครม้วน</h3>
+      <div id="rl"></div>
+      <button class="btn gh sm2" id="addr" style="margin-top:8px">+ เพิ่มคนม้วน</button>
+      <div class="tot"><span class="sm mut">รวมม้วนได้</span><span class="big" id="tq">0 <span class="sm mut">ชิ้น</span></span></div>
+      <div class="xs mut" id="gpp" style="margin-top:8px"></div>
+    </div>`;
+
+  const bind = (f,w)=>{
+    const drawR = ()=>{
+      $('#rl').innerHTML = rollers.map((r,i)=>`<div class="li">
+        <div class="nm"><select data-ri="${i}" class="rby">
+          <option value="">— เลือกคนม้วน —</option>
+          ${S.M.emps.map(e=>`<option value="${e.id}" ${r.by===e.id?'selected':''}>${esc(e.nickname)}</option>`).join('')}
+        </select></div>
+        <input type="number" inputmode="numeric" min="0" step="1" class="rq" data-ri="${i}" value="${r.qty}" placeholder="0">
+        <div class="u">ชิ้น</div>
+      </div>`).join('');
+      $('#rl').oninput = e=>{
+        const i = +e.target.dataset.ri;
+        if(e.target.classList.contains('rq')) rollers[i].qty = e.target.value;
+        else rollers[i].by = e.target.value;
+        calc();
+      };
+      $('#rl').onchange = $('#rl').oninput;
+    };
+    const calc = ()=>{
+      const used = num($('#q_full').value)*f.bpm + num($('#q_part').value) - num($('#q_ret').value);
+      $('#used').innerHTML = `${fmt(used,1)} <span class="sm mut">กก.</span>`;
+      const tq = rollers.reduce((s,r)=>s+num(r.qty),0);
+      $('#tq').innerHTML = `${fmt(tq)} <span class="sm mut">ชิ้น</span>`;
+      $('#gpp').textContent = (used>0 && tq>0)
+        ? `เฉลี่ย ${fmt(used*1000/tq,1)} กรัม/ชิ้น (สูตรตั้งไว้ ${S.set.roll_g_per_piece_target||30} กรัม)` : '';
+    };
+    drawR(); calc();
+    ['q_full','q_part','q_ret'].forEach(id=> $('#'+id).oninput = calc);
+    $('#addr').onclick = ()=>{ rollers.push({by:'',qty:''}); drawR(); calc(); };
+  };
+
+  app.innerHTML = header('ม้วน','โรงงาน', viewHome) + `<main>
+    ${dateField('d')}
+    <div class="fld"><label class="fl">ไส้ที่ม้วน</label>
+      <select id="fv">${wips.map(w=>`<option value="${w.id}">${esc(w.pname)}</option>`).join('')}</select></div>
+    <div id="body"></div>
+    <div class="note">แป้งกับชีสระบบหักให้เอง ตามจำนวนที่ม้วนได้</div>
+    <button class="btn" id="save">บันทึก</button>
+  </main>`;
+  wire(viewHome);
+  $('#fv').onchange = ()=>{ rollers=[{by:'',qty:''}]; render(); };
+  render();
+
+  $('#save').onclick = async e=>{
+    const w = item($('#fv').value), f = fill(w.pcode);
+    const outs = rollers.filter(r=>num(r.qty)>0).map(r=>({item:w.id, by:r.by||null, qty:num(r.qty)}));
+    if(!outs.length) return toast('ยังไม่ได้กรอกจำนวนที่ม้วนได้','bad');
+    if(outs.some(o=>!o.by)) return toast('ต้องเลือกคนม้วนทุกบรรทัด','bad');
+    const used = num($('#q_full').value)*f.bpm + num($('#q_part').value) - num($('#q_ret').value);
+    if(used<=0) return toast('ยังไม่ได้กรอกไส้ที่เบิก','bad');
+    busy(e.target,true);
+    const { error } = await sb.rpc('fn_save_production',{
+      p_kind:'roll', p_branch:S.loc.id, p_on:$('#d').value,
+      p_input_item:f.id, p_input_full:num($('#q_full').value),
+      p_input_partial:num($('#q_part').value), p_input_returned:num($('#q_ret').value),
+      p_note:'', p_outputs:outs
+    });
+    busy(e.target,false,'บันทึก');
+    if(error) return toast(errMsg(error),'bad');
+    done(`บันทึกม้วน ${fmt(outs.reduce((s,o)=>s+o.qty,0))} ชิ้นแล้ว`);
+  };
+}
+
+/* ============================================================
+   3 · บรรจุถุง
+   ============================================================ */
+function scPack(){
+  const wips = S.M.items.filter(x=>x.level==='wip');
+  const packed = p => S.M.items.find(x=>x.level==='packed' && x.pcode===p);
+  const render = ()=>{
+    const w = item($('#fv').value), pk = packed(w.pcode);
+    const cnt = num($('#cnt').value);
+    const bags = Math.floor(cnt / pk.bpm), left = cnt - bags*pk.bpm;
+    $('#res').innerHTML = `
+      <div class="grid2">
+        <div class="tot" style="flex-direction:column;align-items:flex-start;gap:2px">
+          <span class="sm mut">แพ็คได้</span><span class="big">${fmt(bags)} <span class="sm mut">ถุง</span></span></div>
+        <div class="tot" style="flex-direction:column;align-items:flex-start;gap:2px">
+          <span class="sm mut">เศษเก็บไว้ในถาด</span><span class="big">${fmt(left)} <span class="sm mut">ชิ้น</span></span></div>
+      </div>
+      <div class="xs mut" style="margin-top:8px">1 ถุง = ${fmt(pk.bpm)} ชิ้น · เศษ ${fmt(left)} ชิ้น ยังอยู่ในถาด "${esc(w.pname)} ม้วนแล้ว" ใช้ก่อนรอบหน้า</div>`;
+  };
+  app.innerHTML = header('บรรจุถุง','โรงงาน', viewHome) + `<main>
+    ${dateField('d')}
+    <div class="fld"><label class="fl">ไส้ที่แพ็ค</label>
+      <select id="fv">${wips.map(w=>`<option value="${w.id}">${esc(w.pname)}</option>`).join('')}</select></div>
+    <div class="card"><h3>นับปอเปี๊ยะที่ม้วนแล้ว ยังไม่แพ็ค</h3>
+      <div class="xs mut" style="margin:-4px 0 10px">นับทั้งถาด รวมเศษของรอบก่อนด้วย</div>
+      <input id="cnt" type="number" inputmode="numeric" min="0" step="1" placeholder="0">
+      <div style="margin-top:12px" id="res"></div>
+    </div>
+    <button class="btn" id="save">บันทึก</button>
+  </main>`;
+  wire(viewHome);
+  $('#fv').onchange = render; $('#cnt').oninput = render; render();
+  $('#save').onclick = async e=>{
+    const w = item($('#fv').value), pk = packed(w.pcode);
+    const cnt = num($('#cnt').value);
+    if(cnt<=0) return toast('ยังไม่ได้นับจำนวน','bad');
+    const bags = Math.floor(cnt/pk.bpm), left = cnt - bags*pk.bpm;
+    if(bags<=0) return toast(`มีแค่ ${fmt(cnt)} ชิ้น ยังไม่ครบ 1 ถุง (${fmt(pk.bpm)} ชิ้น)`,'bad');
+    busy(e.target,true);
+    const { error } = await sb.rpc('fn_save_production',{
+      p_kind:'pack', p_branch:S.loc.id, p_on:$('#d').value,
+      p_input_item:w.id, p_input_full:0, p_input_partial:cnt, p_input_returned:left,
+      p_note:'', p_outputs:[{item:pk.id, qty:bags*pk.bpm, leftover:left}]
+    });
+    busy(e.target,false,'บันทึก');
+    if(error) return toast(errMsg(error),'bad');
+    done(`แพ็ค ${esc(w.pname)} ได้ ${fmt(bags)} ถุง · เศษ ${fmt(left)} ชิ้น`);
+  };
+}
+
+/* ============================================================
+   4 · ผสมและบรรจุซอส
+   ============================================================ */
+function scSauce(){
+  const raws = S.M.items.filter(x=>x.level==='raw' && x.cat==='SAUCE');
+  const cup = p => S.M.items.find(x=>x.level==='packed' && x.pcode===p);
+  app.innerHTML = header('ผสมและบรรจุซอส','โรงงาน', viewHome) + `<main>
+    ${dateField('d')}
+    <div class="fld"><label class="fl">ซอส</label>
+      <select id="sv">${raws.map(r=>`<option value="${r.id}">${esc(r.pname)}</option>`).join('')}</select></div>
+    <div class="card"><h3>ใช้ซอสดิบ</h3>
+      <div class="xs mut" id="have" style="margin:-4px 0 10px"></div>
+      <input id="use" type="number" inputmode="decimal" min="0" step="any" placeholder="0">
+      <div class="xs mut" style="margin-top:6px">หน่วย: ถุง</div>
+    </div>
+    <div class="card"><h3>บรรจุได้กี่กระปุก</h3>
+      <input id="got" type="number" inputmode="numeric" min="0" step="1" placeholder="0">
+      <div class="xs mut" style="margin-top:6px">1 กระปุก = ${S.set.sauce_g_per_cup||25} กรัม</div>
+    </div>
+    <button class="btn" id="save">บันทึก</button>
+  </main>`;
+  wire(viewHome);
+  const upd = ()=>{ const r=item($('#sv').value); $('#have').textContent = `คลังมี ${fmt(oh(r.id),1)} ถุง`; };
+  $('#sv').onchange = upd; upd();
+  $('#save').onclick = async e=>{
+    const r = item($('#sv').value), c = cup(r.pcode);
+    const use = num($('#use').value), got = num($('#got').value);
+    if(got<=0) return toast('ยังไม่ได้กรอกจำนวนกระปุก','bad');
+    busy(e.target,true);
+    const { error } = await sb.rpc('fn_save_production',{
+      p_kind:'sauce_fill', p_branch:S.loc.id, p_on:$('#d').value,
+      p_input_item:r.id, p_input_full:0, p_input_partial:use, p_input_returned:0,
+      p_note:'', p_outputs:[{item:c.id, qty:got}]
+    });
+    busy(e.target,false,'บันทึก');
+    if(error) return toast(errMsg(error),'bad');
+    done(`บรรจุ${esc(r.pname)} ได้ ${fmt(got)} กระปุก`);
+  };
+}
+
+/* ============================================================
+   5 · จัดของส่งสาขา  /  ส่งของไปสาขาอื่น
+   ============================================================ */
+function scShip(){ transferView(true); }
+function scB2B(){ transferView(false); }
+
+function transferView(fromFactory){
+  const dests = S.M.branches.filter(b=>b.id!==S.loc.id && b.kind!=='factory');
+  if(!dests.length){ toast('ไม่มีสาขาปลายทาง','bad'); return viewHome(); }
+  const title = fromFactory ? 'จัดของส่งสาขา' : 'ส่งของไปสาขาอื่น';
+  app.innerHTML = header(title, S.loc.name, viewHome) + `<main>
+    ${dateField('d')}
+    <div class="fld"><label class="fl">ส่งไปที่</label>
+      <select id="to">${dests.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+    ${fromFactory?'<div class="note">ระบบคิดให้จากความจุตู้ × สัดส่วนที่ขายได้จริง · แก้ตัวเลขทับได้ทุกช่อง</div>':''}
+    <div class="fld"><label class="fl">เหตุผล${fromFactory?' (ไม่บังคับ)':''}</label><input id="rs" placeholder="${fromFactory?'ส่งประจำวัน':'เช่น ของหมดกะทันหัน'}"></div>
+    <div id="plan"><div class="ldg sm">กำลังคิดให้…</div></div>
+    <button class="btn" id="save">ออกใบส่งของ</button>
+  </main>`;
+  wire(viewHome);
+
+  const drawPlan = async ()=>{
+    const to = $('#to').value;
+    $('#plan').innerHTML = '<div class="ldg sm">กำลังคิดให้…</div>';
+    let rows = [];
+    if(fromFactory){
+      const { data, error } = await sb.rpc('fn_delivery_plan',{ p_branch:to, p_as_of:$('#d').value });
+      if(error){ $('#plan').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+      rows = (data||[]).map(r=>({ id:r.stock_item_id, label:r.label, cat:r.category,
+        ub:r.unit_base, um:r.unit_major, bpm:num(r.base_per_major),
+        share:r.share_pct, target:num(r.target_base), there:num(r.on_hand_base),
+        sendMajor: r.send_major==null?null:num(r.send_major), sendBase:num(r.send_base) }));
+    }else{
+      rows = S.M.items.filter(x=>x.level==='packed' && oh(x.id)>0)
+        .map(x=>({ id:x.id, label:x.label, cat:x.catname, ub:x.ub, um:x.um, bpm:x.bpm,
+          share:null, target:null, there:null, sendMajor:x.bpm>1?0:null, sendBase:0 }));
+      if(!rows.length){ $('#plan').innerHTML = '<div class="note">ที่นี่ยังไม่มีของให้ส่ง</div>'; return; }
+    }
+    let html = '', cat = '';
+    for(const r of rows){
+      if(r.cat!==cat){ cat=r.cat; html += `<div class="card" style="padding:12px 14px;margin:14px 0 8px"><h3 style="margin:0">${esc(cat)}</h3></div>`; }
+      const byMajor = r.bpm>1;
+      const have = oh(r.id);
+      html += `<div class="li" data-row="${r.id}" data-bpm="${r.bpm}" data-major="${byMajor?1:0}">
+        <div class="nm">${esc(r.label)}
+          <small>ที่นี่มี ${fmt(have, r.ub==='กก.'?1:0)} ${esc(r.ub)}${byMajor?` (${fmt(Math.floor(have/r.bpm))} ${esc(r.um)})`:''}${
+            r.share!=null?` · สาขาขายได้ ${r.share}%`:''}</small></div>
+        <input type="number" inputmode="numeric" min="0" step="1" class="qs"
+          value="${byMajor ? (r.sendMajor??0) : (r.sendBase??0)}">
+        <div class="u">${esc(byMajor?r.um:r.ub)}</div>
+      </div>`;
+    }
+    $('#plan').innerHTML = html;
+    $('#plan').oninput = tally;
+    tally();
+  };
+  const tally = ()=>{
+    let short = [];
+    document.querySelectorAll('#plan .li[data-row]').forEach(li=>{
+      const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1';
+      const q = num(li.querySelector('.qs').value) * (byM?bpm:1);
+      const have = oh(li.dataset.row);
+      li.style.opacity = q>0?1:.55;
+      li.querySelector('.qs').style.borderColor = q>have ? 'var(--bad)' : '';
+      if(q>have) short.push(li.querySelector('.nm').childNodes[0].textContent.trim());
+    });
+    const w = $('#warn');
+    if(w) w.remove();
+    if(short.length){
+      const d = document.createElement('div');
+      d.id='warn'; d.className='note err'; d.style.marginTop='12px';
+      d.textContent = 'ของไม่พอ: '+short.join(', ')+' — ส่วนที่ขาดจะถูกบันทึกเป็น "ค้างส่ง"';
+      $('#plan').appendChild(d);
+    }
+  };
+  $('#to').onchange = drawPlan;
+  $('#d').onchange = drawPlan;
+  drawPlan();
+
+  $('#save').onclick = async e=>{
+    const lines = [];
+    document.querySelectorAll('#plan .li[data-row]').forEach(li=>{
+      const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1';
+      const want = num(li.querySelector('.qs').value) * (byM?bpm:1);
+      if(want<=0) return;
+      const have = oh(li.dataset.row);
+      const sent = Math.min(want, have);
+      lines.push({ item: li.dataset.row, sent, short: Math.max(0, want-sent) });
+    });
+    if(!lines.length) return toast('ยังไม่ได้ใส่จำนวน','bad');
+    if(!fromFactory && !$('#rs').value.trim()) return toast('ส่งระหว่างสาขา ต้องใส่เหตุผล','bad');
+    busy(e.target,true);
+    const { data, error } = await sb.rpc('fn_save_transfer',{
+      p_from:S.loc.id, p_to:$('#to').value, p_on:$('#d').value,
+      p_reason:$('#rs').value, p_photo:'', p_lines:lines
+    });
+    busy(e.target,false,'ออกใบส่งของ');
+    if(error) return toast(errMsg(error),'bad');
+    const doc = (data && data[0] && data[0].doc_no) || '';
+    done(`ออกใบส่งของ ${doc} แล้ว · ${lines.length} รายการ`);
+  };
+}
+
+/* ============================================================
+   6 · รับของ
+   ============================================================ */
+async function scRecv(){
+  app.innerHTML = header('รับของ', S.loc.name, viewHome) + `<main><div class="ldg">กำลังโหลด…</div></main>`;
+  wire(viewHome);
+  const { data, error } = await sb.rpc('fn_inbound',{ p_branch:S.loc.id });
+  if(error){ app.querySelector('main').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  if(!data.length){ app.querySelector('main').innerHTML = '<div class="note">ตอนนี้ไม่มีใบรอรับ</div>'; return; }
+  app.querySelector('main').innerHTML = data.map(t=>`<button class="tile" data-t="${t.id}">
+    <div class="ic">📦</div>
+    <div class="tx"><b>${esc(t.doc_no)}</b><span>จาก ${esc(t.from_name)} · ${esc(t.issued_on)} · ${t.lines.length} รายการ</span></div>
+    <div class="ar">›</div></button>`).join('');
+  app.querySelector('main').onclick = e=>{
+    const b = e.target.closest('[data-t]'); if(!b) return;
+    recvDetail(data.find(x=>x.id===b.dataset.t));
+  };
+}
+function recvDetail(t){
+  app.innerHTML = header('รับของ · '+t.doc_no, 'จาก '+t.from_name, scRecv) + `<main>
+    <div class="note">นับของจริงที่ได้รับ · ถ้าตรงตามใบ ไม่ต้องแก้</div>
+    <div class="card"><div class="lst">
+    ${t.lines.map(l=>{
+      const byM = num(l.sent)>0 && l.major && S.M.items.find(i=>i.id===l.item) && item(l.item).bpm>1;
+      const bpm = item(l.item) ? item(l.item).bpm : 1;
+      return `<div class="li" data-line="${l.line}" data-bpm="${bpm}">
+        <div class="nm">${esc(l.label)}<small>ตามใบ ${fmt(l.sent)} ${esc(l.unit)}${bpm>1?` (${fmt(l.sent/bpm)} ${esc(l.major||'')})`:''}${
+          num(l.short)>0?` · ค้างส่ง ${fmt(l.short)}`:''}</small></div>
+        <input type="number" inputmode="decimal" step="any" min="0" class="rq" value="${num(l.sent)}">
+        <div class="u">${esc(l.unit)}</div>
+      </div>`;}).join('')}
+    </div></div>
+    <button class="btn" id="save">ยืนยันรับของ</button>
+  </main>`;
+  wire(scRecv);
+  $('#save').onclick = async e=>{
+    const lines = [...document.querySelectorAll('.li[data-line]')]
+      .map(li=>({ line: li.dataset.line, received: num(li.querySelector('.rq').value) }));
+    busy(e.target,true);
+    const { error } = await sb.rpc('fn_receive_transfer',{ p_transfer:t.id, p_lines:lines });
+    busy(e.target,false,'ยืนยันรับของ');
+    if(error) return toast(errMsg(error),'bad');
+    done('รับของ '+t.doc_no+' แล้ว');
+  };
+}
+
+/* ============================================================
+   7 · นับสต๊อก
+   ============================================================ */
+function scCount(){
+  const fac = S.loc.kind==='factory';
+  const its = S.M.items.filter(x=> fac ? true : (!x.fac && x.level==='packed'));
+  const title = fac ? 'นับสต๊อกโรงงาน' : 'นับสต๊อกประจำวัน';
+  let html = '', cat = '';
+  const order = fac ? ['filling','wip','packed','raw'] : ['packed'];
+  const levTh = {filling:'ไส้ (กก.)', wip:'ม้วนแล้ว ยังไม่แพ็ค (ชิ้น)', packed:'ของพร้อมขาย', raw:'วัตถุดิบ / ซอสดิบ'};
+  for(const lv of order){
+    const g = its.filter(x=>x.level===lv);
+    if(!g.length) continue;
+    html += `<div class="card"><h3>${esc(levTh[lv])}</h3><div class="lst">`;
+    for(const x of g){
+      const byM = x.bpm>1;
+      html += `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}">
+        <div class="nm">${esc(x.label)}${byM?`<small>1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)}</small>`:''}</div>
+        ${byM?`<input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder="0" style="width:72px">
+               <div class="u">${esc(x.um)}</div>`:''}
+        <input type="number" inputmode="decimal" min="0" step="any" class="cm" placeholder="0" style="width:72px">
+        <div class="u">${esc(x.ub)}</div>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+  app.innerHTML = header(title, S.loc.name, viewHome) + `<main>
+    <div class="note">นับของจริงที่เห็นตรงหน้า · ระบบจะเทียบกับที่ควรเหลือให้หลังกดส่ง</div>
+    ${dateField('d')}
+    ${html}
+    <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
+    <button class="btn" id="save">ส่งผลการนับ</button>
+  </main>`;
+  wire(viewHome);
+  $('#save').onclick = async e=>{
+    const lines = [...document.querySelectorAll('.li[data-item]')].map(li=>{
+      const bpm = num(li.dataset.bpm);
+      const M = li.querySelector('.cM'), m = li.querySelector('.cm');
+      const major = M?num(M.value):0, minor = num(m.value);
+      return { item: li.dataset.item, major, minor, base: major*bpm + minor,
+               touched: (M && M.value!=='') || m.value!=='' };
+    });
+    const filled = lines.filter(l=>l.touched);
+    if(!filled.length) return toast('ยังไม่ได้นับอะไรเลย','bad');
+    if(filled.length < lines.length){
+      if(!confirm(`ยังไม่ได้กรอก ${lines.length-filled.length} รายการ\nรายการที่เว้นว่างจะถูกนับเป็น 0\n\nส่งเลยไหม?`)) return;
+    }
+    busy(e.target,true);
+    const { data, error } = await sb.rpc('fn_save_count',{
+      p_branch:S.loc.id, p_kind: fac?'weekly':'daily', p_on:$('#d').value,
+      p_note:$('#nt').value, p_lines: lines.map(({item,major,minor,base})=>({item,major,minor,base}))
+    });
+    busy(e.target,false,'ส่งผลการนับ');
+    if(error) return toast(errMsg(error),'bad');
+    await loadOnHand(S.loc.id);
+    countResult(data);
+  };
+}
+async function countResult(id){
+  app.innerHTML = header('ผลการนับ', S.loc.name, viewHome) + `<main><div class="ldg">กำลังเทียบ…</div></main>`;
+  wire(viewHome);
+  const { data, error } = await sb.rpc('fn_count_result',{ p_count:id });
+  if(error){ app.querySelector('main').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  const bad = data.filter(r=>num(r.diff)!==0);
+  app.querySelector('main').innerHTML = `
+    <div class="note ${bad.length?'err':'okbox'}">${bad.length
+      ? `มี ${bad.length} รายการที่ไม่ตรง — ดูข้างล่าง`
+      : 'ตรงทุกรายการ 👍'}</div>
+    <div class="card"><table>
+      <tr><th>ของ</th><th class="n">ควรเหลือ</th><th class="n">นับได้</th><th class="n">ต่าง</th></tr>
+      ${data.map(r=>{
+        const d = num(r.diff);
+        const cls = d<0?'diffneg':d>0?'diffpos':'diffz';
+        return `<tr><td>${esc(r.label)}</td>
+          <td class="n mut">${fmt(r.expected,1)}</td>
+          <td class="n">${fmt(r.counted,1)}</td>
+          <td class="n ${cls}">${d>0?'+':''}${fmt(d,1)}</td></tr>`;
+      }).join('')}
+    </table></div>
+    <div class="xs mut">ตัวเลขที่นับได้ กลายเป็นยอดคงเหลือใหม่ของระบบแล้ว</div>
+    <button class="btn" id="hm" style="margin-top:14px">กลับหน้าหลัก</button>`;
+  $('#hm').onclick = viewHome;
+}
+
+/* ============================================================
+   8 · แจ้งของเสีย
+   ============================================================ */
+function scWaste(){
+  const its = S.M.items.filter(x=> S.loc.kind==='factory' ? true : !x.fac);
+  let file = null, groups = {};
+  its.forEach(x=>{ (groups[x.catname] = groups[x.catname]||[]).push(x); });
+  app.innerHTML = header('แจ้งของเสีย', S.loc.name, viewHome) + `<main>
+    <div class="note">ต้องถ่ายรูปหลักฐานทุกครั้ง ไม่งั้นบันทึกไม่ได้</div>
+    ${dateField('d')}
+    <div class="fld"><label class="fl">สาเหตุ</label>
+      <select id="rz">${S.M.reasons.map(r=>`<option value="${r.id}" data-c="${r.code}">${esc(r.name)}</option>`).join('')}</select></div>
+    <div class="fld" id="rtw" style="display:none"><label class="fl">อธิบายเพิ่ม</label><input id="rt"></div>
+    <div class="card"><h3>รูปหลักฐาน</h3>
+      <input type="file" accept="image/*" capture="environment" id="ph" style="padding:9px">
+      <img id="pv" class="ph" style="display:none">
+    </div>
+    <div class="card"><h3>ของที่เสีย</h3>
+      ${Object.entries(groups).map(([c,g])=>`
+        <div class="xs mut" style="margin:10px 0 2px">${esc(c)}</div>
+        <div class="lst">${g.map(x=>lineRow(x,{showOh:true})).join('')}</div>`).join('')}
+    </div>
+    <button class="btn" id="save">บันทึกของเสีย</button>
+  </main>`;
+  wire(viewHome);
+  $('#rz').onchange = e=>{
+    const c = e.target.selectedOptions[0].dataset.c;
+    $('#rtw').style.display = c==='OTHER' ? 'block' : 'none';
+  };
+  $('#ph').onchange = e=>{
+    file = e.target.files[0] || null;
+    if(file){ $('#pv').src = URL.createObjectURL(file); $('#pv').style.display='block'; }
+  };
+  $('#save').onclick = async e=>{
+    const lines = collect('main');
+    if(!lines.length) return toast('ยังไม่ได้ใส่จำนวนของที่เสีย','bad');
+    if(!file) return toast('ต้องถ่ายรูปหลักฐานก่อน','bad');
+    const c = $('#rz').selectedOptions[0].dataset.c;
+    if(c==='OTHER' && !$('#rt').value.trim()) return toast('เลือก "อื่นๆ" ต้องอธิบายด้วย','bad');
+    busy(e.target,true);
+    try{
+      const path = await upPhoto(file);
+      const { error } = await sb.rpc('fn_save_waste',{
+        p_branch:S.loc.id, p_on:$('#d').value, p_reason:$('#rz').value,
+        p_reason_text:$('#rt')?$('#rt').value:'', p_photo:path, p_lines:lines
+      });
+      if(error) throw error;
+      busy(e.target,false,'บันทึกของเสีย');
+      done(`บันทึกของเสีย ${lines.length} รายการแล้ว`);
+    }catch(err){ busy(e.target,false,'บันทึกของเสีย'); toast(errMsg(err),'bad'); }
+  };
+}
+
+/* ============================================================
+   9 · ภาพรวม (เจ้าของ)
+   ============================================================ */
+async function scDash(){
+  app.innerHTML = header('ภาพรวมทั้งบริษัท','', viewHome) + `<main><div class="ldg">กำลังรวมตัวเลข…</div></main>`;
+  wire(viewHome);
+  const { data, error } = await sb.rpc('fn_overview',{ p_as_of: today() });
+  if(error){ app.querySelector('main').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  const gpp = num(S.set.roll_g_per_piece_target||30);
+  const by = {};
+  data.forEach(r=>{ (by[r.branch_name] = by[r.branch_name]||{kind:r.branch_kind, rows:[]}).rows.push(r); });
+  let html = `<div class="xs mut" style="margin-bottom:10px">ณ ${today()} · ตัวเลขนี้คือ "ควรเหลือ" จากทุกการเคลื่อนไหวที่บันทึกไว้</div>`;
+  for(const [name,g] of Object.entries(by)){
+    const rows = g.rows.filter(r=>num(r.qty_base)!==0 || r.level==='packed');
+    html += `<div class="card"><h3>${g.kind==='factory'?'🏭':'🏬'} ${esc(name)}</h3><table>
+      <tr><th>ของ</th><th class="n">คงเหลือ</th></tr>
+      ${rows.map(r=>{
+        const q = num(r.qty_base), bpm = num(r.base_per_major);
+        let right = `${fmt(q, r.unit_base==='กก.'?1:0)} <span class="mut xs">${esc(r.unit_base)}</span>`;
+        if(r.level==='filling') right += ` <span class="mut xs">(~${fmt(q*1000/gpp)} ชิ้น)</span>`;
+        if(r.level==='packed' && bpm>1) right = `${fmt(Math.floor(q/bpm))} <span class="mut xs">${esc(r.unit_major||'')}</span> <span class="mut xs">+ ${fmt(q-Math.floor(q/bpm)*bpm)} ${esc(r.unit_base)}</span>`;
+        return `<tr><td>${esc(r.label)}</td><td class="n ${q<0?'diffneg':''}">${right}</td></tr>`;
+      }).join('')}
+    </table></div>`;
+  }
+  app.querySelector('main').innerHTML = html;
+}
+</script>
+</body>
+</html>

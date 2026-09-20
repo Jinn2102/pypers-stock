@@ -154,12 +154,13 @@ const SCREENS = [
   {id:'pack',  ic:'🛍️', nm:'บรรจุถุง',          sb:'นับที่ม้วนแล้ว → แพ็คเป็นถุง',          at:'factory'},
   {id:'sauce', ic:'🥫', nm:'ผสมและบรรจุซอส',    sb:'ซอสดิบ (ถุง) → กระปุก',                 at:'factory'},
   {id:'ship',  ic:'🚚', nm:'จัดของส่งสาขา',     sb:'ระบบคิดให้ว่าส่งอะไรกี่ถุง',            at:'factory'},
+  {id:'recv',  ic:'📥', nm:'รับของคืนจากสาขา',  sb:'ตรวจของที่สาขาส่งกลับมา',               at:'factory'},
   {id:'count', ic:'📋', nm:'นับสต๊อกโรงงาน',    sb:'นับของจริง แล้วเทียบกับที่ควรเหลือ',   at:'factory'},
   {id:'waste', ic:'🗑️', nm:'แจ้งของเสีย',       sb:'ต้องถ่ายรูปหลักฐานทุกครั้ง',            at:'factory'},
 
   {id:'count', ic:'📋', nm:'นับสต๊อกประจำวัน',  sb:'นับถุงที่ยังไม่แกะ + ชิ้นที่แกะแล้ว',  at:'branch'},
   {id:'recv',  ic:'📦', nm:'รับของ',             sb:'ตรวจของที่โรงงาน/สาขาอื่นส่งมา',       at:'branch'},
-  {id:'b2b',   ic:'↔️', nm:'ส่งของไปสาขาอื่น',  sb:'ออกใบส่งของระหว่างสาขา',                at:'branch'},
+  {id:'b2b',   ic:'↔️', nm:'ส่งของไปที่อื่น',    sb:'สาขาอื่น หรือส่งคืนโรงงาน',             at:'branch'},
   {id:'waste', ic:'🗑️', nm:'แจ้งของเสีย',       sb:'ต้องถ่ายรูปหลักฐานทุกครั้ง',            at:'branch'},
 ];
 
@@ -365,9 +366,8 @@ async function viewHome(){
   const at = S.loc.kind==='factory' ? 'factory' : 'branch';
   const list = SCREENS.filter(s=>s.at===at);
   let nInbound = 0;
-  if(at==='branch'){
-    try{ const { data } = await sb.rpc('fn_inbound',{p_branch:S.loc.id}); nInbound = (data||[]).length; }catch(e){}
-  }
+  try{ const { data } = await sb.rpc('fn_inbound',{p_branch:S.loc.id}); nInbound = (data||[]).length; }catch(e){}
+  const seeDash = S.me.role === 'owner' || S.me.role === 'factory';
   const canSwitch = S.me.role==='owner' || S.M.branches.filter(b=> S.me.role==='factory'?b.kind==='factory':b.kind!=='factory').length>1;
   app.innerHTML = header("Pyper's สต๊อก") + `<main>
     <div class="card" style="padding:12px 14px">
@@ -380,8 +380,8 @@ async function viewHome(){
       <div class="ic">${s.ic}</div>
       <div class="tx"><b>${esc(s.nm)}${s.id==='recv'&&nInbound?` <span class="badge">${nInbound}</span>`:''}</b><span>${esc(s.sb)}</span></div>
       <div class="ar">›</div></button>`).join('')}
-    ${S.me.role==='owner'?`<button class="tile" data-go="dash">
-      <div class="ic">📊</div><div class="tx"><b>ภาพรวมทั้งบริษัท</b><span>ของคงเหลือทุกที่ แยกทุกไส้</span></div><div class="ar">›</div></button>`:''}
+    ${seeDash?`<button class="tile" data-go="dash">
+      <div class="ic">📊</div><div class="tx"><b>ภาพรวมทั้งบริษัท</b><span>ของคงเหลือทุกที่ แยกทุกไส้ ครบทุกรายการ</span></div><div class="ar">›</div></button>`:''}
     <button class="btn gh sm2" id="out" style="margin-top:16px">ออกจากระบบ</button>
   </main>`;
   if($('#sw')) $('#sw').onclick = ()=>{ localStorage.removeItem('loc'); pickLocation(); };
@@ -660,13 +660,16 @@ function scShip(){ transferView(true); }
 function scB2B(){ transferView(false); }
 
 function transferView(fromFactory){
-  const dests = S.M.branches.filter(b=>b.id!==S.loc.id && b.kind!=='factory');
-  if(!dests.length){ toast('ไม่มีสาขาปลายทาง','bad'); return viewHome(); }
-  const title = fromFactory ? 'จัดของส่งสาขา' : 'ส่งของไปสาขาอื่น';
+  // โรงงานส่งออกไปสาขา · สาขาส่งไปสาขาอื่น "หรือส่งคืนโรงงาน" ได้
+  const dests = fromFactory
+    ? S.M.branches.filter(b=>b.id!==S.loc.id && b.kind!=='factory')
+    : S.M.branches.filter(b=>b.id!==S.loc.id);
+  if(!dests.length){ toast('ไม่มีปลายทางให้ส่ง','bad'); return viewHome(); }
+  const title = fromFactory ? 'จัดของส่งสาขา' : 'ส่งของไปที่อื่น';
   app.innerHTML = header(title, S.loc.name, viewHome) + `<main>
     ${dateField('d')}
     <div class="fld"><label class="fl">ส่งไปที่</label>
-      <select id="to">${dests.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <select id="to">${dests.map(b=>`<option value="${b.id}">${b.kind==='factory'?'🏭 ':''}${esc(b.name)}</option>`).join('')}</select></div>
     ${fromFactory?'<div class="note">ระบบคิดให้จากความจุตู้ × สัดส่วนที่ขายได้จริง · แก้ตัวเลขทับได้ทุกช่อง</div>':''}
     <div class="fld"><label class="fl">เหตุผล${fromFactory?' (ไม่บังคับ)':''}</label><input id="rs" placeholder="${fromFactory?'ส่งประจำวัน':'เช่น ของหมดกะทันหัน'}"></div>
     <div id="plan"><div class="ldg sm">กำลังคิดให้…</div></div>
@@ -743,7 +746,7 @@ function transferView(fromFactory){
       lines.push({ item: li.dataset.row, sent, short: Math.max(0, want-sent) });
     });
     if(!lines.length) return toast('ยังไม่ได้ใส่จำนวน','bad');
-    if(!fromFactory && !$('#rs').value.trim()) return toast('ส่งระหว่างสาขา ต้องใส่เหตุผล','bad');
+    if(!fromFactory && !$('#rs').value.trim()) return toast('ส่งของออกจากสาขา ต้องใส่เหตุผล','bad');
     busy(e.target,true);
     const { data, error } = await sb.rpc('fn_save_transfer',{
       p_from:S.loc.id, p_to:$('#to').value, p_on:$('#d').value,
@@ -760,7 +763,8 @@ function transferView(fromFactory){
    6 · รับของ
    ============================================================ */
 async function scRecv(){
-  app.innerHTML = header('รับของ', S.loc.name, viewHome) + `<main><div class="ldg">กำลังโหลด…</div></main>`;
+  const rtitle = S.loc.kind==='factory' ? 'รับของคืนจากสาขา' : 'รับของ';
+  app.innerHTML = header(rtitle, S.loc.name, viewHome) + `<main><div class="ldg">กำลังโหลด…</div></main>`;
   wire(viewHome);
   const { data, error } = await sb.rpc('fn_inbound',{ p_branch:S.loc.id });
   if(error){ app.querySelector('main').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
@@ -948,22 +952,63 @@ async function scDash(){
   const { data, error } = await sb.rpc('fn_overview',{ p_as_of: today() });
   if(error){ app.querySelector('main').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
   const gpp = num(S.set.roll_g_per_piece_target||30);
-  const by = {};
-  data.forEach(r=>{ (by[r.branch_name] = by[r.branch_name]||{kind:r.branch_kind, rows:[]}).rows.push(r); });
-  let html = `<div class="xs mut" style="margin-bottom:10px">ณ ${today()} · ตัวเลขนี้คือ "ควรเหลือ" จากทุกการเคลื่อนไหวที่บันทึกไว้</div>`;
-  for(const [name,g] of Object.entries(by)){
-    const rows = g.rows.filter(r=>num(r.qty_base)!==0 || r.level==='packed');
-    html += `<div class="card"><h3>${g.kind==='factory'?'🏭':'🏬'} ${esc(name)}</h3><table>
-      <tr><th>ของ</th><th class="n">คงเหลือ</th></tr>
-      ${rows.map(r=>{
-        const q = num(r.qty_base), bpm = num(r.base_per_major);
-        let right = `${fmt(q, r.unit_base==='กก.'?1:0)} <span class="mut xs">${esc(r.unit_base)}</span>`;
-        if(r.level==='filling') right += ` <span class="mut xs">(~${fmt(q*1000/gpp)} ชิ้น)</span>`;
-        if(r.level==='packed' && bpm>1) right = `${fmt(Math.floor(q/bpm))} <span class="mut xs">${esc(r.unit_major||'')}</span> <span class="mut xs">+ ${fmt(q-Math.floor(q/bpm)*bpm)} ${esc(r.unit_base)}</span>`;
-        return `<tr><td>${esc(r.label)}</td><td class="n ${q<0?'diffneg':''}">${right}</td></tr>`;
-      }).join('')}
-    </table></div>`;
+
+  // ---- แสดงจำนวนให้อ่านง่ายตามชนิดของ ----
+  const qty = (r, q) => {
+    const bpm = num(r.bpm);
+    if(r.level==='filling')
+      return `${fmt(q,1)} <span class="mut xs">กก. (~${fmt(q*1000/gpp)} ชิ้น)</span>`;
+    if(bpm > 1){
+      const big = Math.floor(q/bpm), rest = q - big*bpm;
+      return `${fmt(big)} <span class="mut xs">${esc(r.um||'')}</span>` +
+             (rest ? ` <span class="mut xs">+ ${fmt(rest)} ${esc(r.ub)}</span>` : '');
+    }
+    return `${fmt(q, r.ub==='กก.'?1:0)} <span class="mut xs">${esc(r.ub)}</span>`;
+  };
+
+  // ---- รวมทั้งบริษัท + จำได้ว่าของอยู่ที่ไหนบ้าง ----
+  const tot = new Map(); const locs = []; const byLoc = new Map();
+  for(const r of data){
+    if(!byLoc.has(r.branch_name)){ byLoc.set(r.branch_name, {kind:r.branch_kind, rows:[]}); locs.push(r.branch_name); }
+    byLoc.get(r.branch_name).rows.push(r);
+    const k = r.label;
+    if(!tot.has(k)) tot.set(k, { label:r.label, level:r.level, cat:r.category,
+      ub:r.unit_base, um:r.unit_major, bpm:num(r.base_per_major), q:0, where:{} });
+    const t = tot.get(k);
+    t.q += num(r.qty_base);
+    if(num(r.qty_base) !== 0) t.where[r.branch_name] = num(r.qty_base);
   }
+  const shortName = n => n.replace('โรงงาน · พระราม 3 ซอย 73','โรงงาน').replace('เซ็นทรัล ','').replace('ไพเปอร์ส ','');
+
+  // ---- การ์ดรวมทั้งบริษัท ----
+  let html = `<div class="xs mut" style="margin-bottom:10px">ณ ${today()} · ตัวเลขนี้คือ "ควรเหลือ" จากทุกการเคลื่อนไหวที่บันทึกไว้ · แสดงครบทุกรายการ แม้เป็น 0</div>`;
+  let cat = '';
+  html += `<div class="card"><h3>🏢 รวมทั้งบริษัท</h3><table>`;
+  for(const t of tot.values()){
+    if(t.cat !== cat){ cat = t.cat;
+      html += `<tr><th colspan="2" style="padding-top:12px">${esc(cat)}</th></tr>`; }
+    const w = Object.entries(t.where).map(([n,v])=>`${esc(shortName(n))} ${fmt(v, t.ub==='กก.'?1:0)}`).join(' · ');
+    html += `<tr><td>${esc(t.label)}${w?`<br><span class="xs mut">${w}</span>`:`<br><span class="xs mut">ยังไม่มีที่ไหนเลย</span>`}</td>
+      <td class="n ${t.q<0?'diffneg':(t.q===0?'mut':'')}" style="white-space:nowrap">${qty(t, t.q)}</td></tr>`;
+  }
+  html += `</table></div>`;
+
+  // ---- แยกตามที่ ----
+  for(const name of locs){
+    const g = byLoc.get(name);
+    let c2 = '';
+    html += `<div class="card"><h3>${g.kind==='factory'?'🏭':(g.kind==='popup'?'⛺':'🏬')} ${esc(name)}</h3><table>`;
+    for(const r of g.rows){
+      const q = num(r.qty_base);
+      const rr = { level:r.level, ub:r.unit_base, um:r.unit_major, bpm:num(r.base_per_major) };
+      if(r.category !== c2){ c2 = r.category;
+        html += `<tr><th colspan="2" style="padding-top:12px">${esc(c2)}</th></tr>`; }
+      html += `<tr><td>${esc(r.label)}</td>
+        <td class="n ${q<0?'diffneg':(q===0?'mut':'')}" style="white-space:nowrap">${qty(rr, q)}</td></tr>`;
+    }
+    html += `</table></div>`;
+  }
+  html += `<div class="xs mut" style="margin-bottom:20px">ตัวเลขติดลบ = ระบบบันทึกของออกมากกว่าที่เข้า · ให้นับสต๊อกที่นั่นใหม่ แล้วตัวเลขจะกลับมาตรง</div>`;
   app.querySelector('main').innerHTML = html;
 }
 </script>

@@ -128,6 +128,16 @@ hr.d{border:none;border-top:1px solid var(--line);margin:14px 0}
   padding:9px;font-size:13.5px;font-family:inherit;cursor:pointer}
 .tabs button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
 .empty{color:var(--mut);font-size:12.5px;padding:6px 0}
+/* ---- เช็กลิสต์ ---- */
+.ck{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}
+.ck:last-child{border-bottom:none}
+.ck .mk{font-size:17px;line-height:1.3;width:20px;flex-shrink:0}
+.ck .bd{flex:1;min-width:0}
+.ck .bd b{display:block;font-size:14.5px;font-weight:500}
+.ck .bd span{font-size:12px;color:var(--mut)}
+.ck.no .bd b{color:var(--warn)}
+.bar{height:8px;background:var(--card2);border-radius:5px;overflow:hidden;margin:10px 0 4px}
+.bar i{display:block;height:100%;background:var(--ok);border-radius:5px}
 .diffneg{color:var(--bad);font-weight:600}
 .diffpos{color:var(--warn);font-weight:600}
 .diffz{color:var(--ok);font-weight:600}
@@ -178,7 +188,7 @@ function errMsg(e){
 const SCREENS = [
   {id:'make',  ic:'🥣', nm:'ทำไส้',              sb:'บันทึกไส้ที่ทำได้วันนี้ (กก.)',        at:'factory'},
   {id:'roll',  ic:'🌯', nm:'ม้วน',               sb:'เบิกไส้ · ม้วนได้กี่ชิ้น · ใครม้วน',   at:'factory'},
-  {id:'sauce', ic:'🥫', nm:'ผสมและบรรจุซอส',    sb:'ซอสดิบ (ถุง) → กระปุก',                 at:'factory'},
+  {id:'sauce', ic:'🥫', nm:'ผสม / แบ่งบรรจุ',   sb:'Dip · เทเทอร์ท็อต — กรอกวัตถุดิบหลักตัวเดียว', at:'factory'},
   {id:'ship',  ic:'🚚', nm:'จัดของส่งสาขา',     sb:'ระบบคิดให้ว่าส่งอะไรกี่ถุง',            at:'factory'},
   {id:'recv',  ic:'📥', nm:'รับของคืนจากสาขา',  sb:'ตรวจของที่สาขาส่งกลับมา',               at:'factory'},
   {id:'count', ic:'📋', nm:'นับสต๊อกโรงงาน',    sb:'นับของจริง แล้วเทียบกับที่ควรเหลือ',   at:'factory'},
@@ -412,6 +422,13 @@ async function viewHome(){
   let nInbound = 0;
   try{ const { data } = await sb.rpc('fn_inbound',{p_branch:S.loc.id}); nInbound = (data||[]).length; }catch(e){}
   const seeDash = S.me.role === 'owner' || S.me.role === 'factory';
+  let nTodo = 0;
+  if(seeDash){
+    try{
+      const { data } = await sb.rpc('fn_daily_checklist', { p_on: today() });
+      nTodo = (data||[]).filter(r=>!r.done).length;
+    }catch(e){}
+  }
   const canSwitch = S.me.role==='owner' || S.M.branches.filter(b=> S.me.role==='factory'?b.kind==='factory':b.kind!=='factory').length>1;
   app.innerHTML = header("Pyper's สต๊อก") + `<main>
     <div class="card" style="padding:12px 14px">
@@ -424,6 +441,8 @@ async function viewHome(){
       <div class="ic">${s.ic}</div>
       <div class="tx"><b>${esc(s.nm)}${s.id==='recv'&&nInbound?` <span class="badge">${nInbound}</span>`:''}</b><span>${esc(s.sb)}</span></div>
       <div class="ar">›</div></button>`).join('')}
+    ${seeDash?`<button class="tile" data-go="check">
+      <div class="ic">🗒️</div><div class="tx"><b>เช็กลิสต์วันนี้${nTodo?` <span class="badge">${nTodo} ยังไม่ส่ง</span>`:''}</b><span>ใครส่งรายงานแล้ว ใครยังไม่ส่ง</span></div><div class="ar">›</div></button>`:''}
     ${seeDash?`<button class="tile" data-go="dash">
       <div class="ic">📊</div><div class="tx"><b>ภาพรวมทั้งบริษัท</b><span>ของคงเหลือทุกที่ แยกทุกไส้ ครบทุกรายการ</span></div><div class="ar">›</div></button>`:''}
     <button class="btn gh sm2" id="out" style="margin-top:16px">ออกจากระบบ</button>
@@ -433,7 +452,7 @@ async function viewHome(){
   app.querySelector('main').onclick = e => {
     const t = e.target.closest('[data-go]'); if(!t) return;
     ({make:scMake, roll:scRoll, sauce:scSauce, ship:scShip,
-      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, dash:scDash})[t.dataset.go]();
+      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, dash:scDash, check:scCheck})[t.dataset.go]();
   };
 }
 
@@ -645,100 +664,144 @@ function scRoll(){
 }
 
 /* ============================================================
-   4 · ผสมและบรรจุซอส  (มีสูตร · ผสมแล้วบรรจุหมดในครั้งเดียว)
+   4 · ผสม / แบ่งบรรจุ
+   กรอก "วัตถุดิบหลัก" ตัวเดียว ตัวอื่นคำนวณตามอัตราส่วน แก้ไม่ได้
    ============================================================ */
 function scSauce(){
-  const sauces = S.M.items.filter(x=>x.level==='packed' && x.cat==='SAUCE');
-  const mats   = S.M.items.filter(x=>x.level==='raw' && x.cat==='SMAT');
-  const gpc    = num(S.set.sauce_g_per_cup || 20);
-  let recipe = [], kgPerBatch = 0, cupsPerBatch = 0;
+  const outs = S.M.items.filter(x => x.level==='packed' && (x.cat==='SAUCE' || x.cat==='TATER'));
+  const mats = S.M.items.filter(x => x.level==='raw' && (x.cat==='SMAT' || x.cat==='TATER'));
+  let rec = [], main = null, outUnit = 'หน่วย', gpb = 20;
 
-  app.innerHTML = header('ผสมและบรรจุซอส','โรงงาน', viewHome) + `<main>
+  app.innerHTML = header('ผสม / แบ่งบรรจุ','โรงงาน', viewHome) + `<main>
     ${dateField('d')}
-    <div class="fld"><label class="fl">ซอสที่ทำ</label>
-      <select id="sv">${sauces.map(r=>`<option value="${r.id}">${esc(r.pname)}</option>`).join('')}</select></div>
-    <div class="fld"><label class="fl">ทำกี่ชุด</label>
-      <input id="bt" type="number" inputmode="decimal" min="0" step="any" value="1"></div>
+    <div class="fld"><label class="fl">ของที่ทำ</label>
+      <select id="sv">${outs.map(r=>`<option value="${r.id}">${esc(r.label)}</option>`).join('')}</select></div>
     <div id="body"><div class="ldg sm">กำลังอ่านสูตร…</div></div>
-    <div class="note">ผสมแล้วบรรจุให้หมดในครั้งเดียว ไม่มีการเก็บของผสมไว้ · กรอก "ใช้จริง" ตามที่ชั่งได้จริง ถึงจะต่างจากสูตรก็ไม่เป็นไร</div>
     <button class="btn" id="save">บันทึก</button>
   </main>`;
   wire(viewHome);
 
   const load = async ()=>{
-    const sid = $('#sv').value;
     $('#body').innerHTML = '<div class="ldg sm">กำลังอ่านสูตร…</div>';
-    const { data, error } = await sb.rpc('fn_recipe', { p_output: sid, p_as_of: $('#d').value });
+    const { data, error } = await sb.rpc('fn_recipe', { p_output: $('#sv').value, p_as_of: $('#d').value });
     if(error){ $('#body').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
-    recipe = data || [];
-    kgPerBatch   = recipe.length ? num(recipe[0].batch_kg)   : 0;
-    cupsPerBatch = recipe.length ? num(recipe[0].batch_cups) : 0;
+    rec = data || [];
+    main = rec.find(r => r.is_main) || rec[0] || null;
+    const it = item($('#sv').value);
+    outUnit = rec.length ? rec[0].out_unit : it.ub;
+    gpb     = rec.length ? num(rec[0].g_per_base) : 20;
     draw();
   };
 
   const draw = ()=>{
-    const n = num($('#bt').value);
-    const rows = recipe.length
-      ? recipe.map(r=>({ id:r.input_item_id, label:r.label, ub:r.unit_base,
-                         need: num(r.qty_per_batch) * n, have: num(r.on_hand) }))
-      : mats.map(m=>({ id:m.id, label:m.label, ub:m.ub, need:null, have: oh(m.id) }));
-
-    $('#body').innerHTML = `
-      ${recipe.length ? '' : '<div class="note err">ซอสตัวนี้ยังไม่ได้ใส่สูตร — กรอกวัตถุดิบที่ใช้จริงเองได้เลย</div>'}
-      <div class="card"><h3>วัตถุดิบ</h3>
-        <div class="xs mut" style="margin:-4px 0 8px">${recipe.length
-          ? `1 ชุด = ${fmt(kgPerBatch,2)} กก. → ${fmt(cupsPerBatch)} กระปุก (กระปุกละ ${fmt(gpc)} กรัม)`
-          : `กระปุกละ ${fmt(gpc)} กรัม`}</div>
-        <div class="lst" id="mt">
-          ${rows.map(r=>`<div class="li" data-m="${r.id}">
-            <div class="nm">${esc(r.label)}
-              <small>${r.need!=null?`ตามสูตร ${fmt(r.need,3)} ${esc(r.ub)} · `:''}คลังมี ${fmt(r.have,2)} ${esc(r.ub)}</small></div>
-            <input type="number" inputmode="decimal" min="0" step="any" class="mq"
-              value="${r.need!=null?(Math.round(r.need*1000)/1000):''}" placeholder="0">
-            <div class="u">${esc(r.ub)}</div>
-          </div>`).join('')}
+    const it = item($('#sv').value);
+    if(!rec.length){
+      // ไม่มีสูตร (เช่น ครีมเดอโพรวองส์ ที่เจ้าของผสมเอง) -> กรอกเองทุกตัว
+      $('#body').innerHTML = `
+        <div class="note err">ตัวนี้ยังไม่ได้ใส่สูตร — กรอกวัตถุดิบที่ใช้จริงเองได้เลย</div>
+        <div class="card"><h3>วัตถุดิบที่ใช้</h3><div class="lst" id="mt">
+          ${mats.map(m=>`<div class="li" data-m="${m.id}">
+            <div class="nm">${esc(m.label)}<small>คลังมี ${fmt(oh(m.id),2)} ${esc(m.ub)}</small></div>
+            <input type="number" inputmode="decimal" min="0" step="any" class="mq" placeholder="0">
+            <div class="u">${esc(m.ub)}</div></div>`).join('')}
         </div>
-        <div class="tot"><span class="sm mut">น้ำหนักรวมที่ใช้จริง</span><span class="big" id="tk">0 <span class="sm mut">กก.</span></span></div>
+        <div class="tot"><span class="sm mut">น้ำหนักรวม</span><span class="big" id="tk">0 <span class="sm mut">กก.</span></span></div>
+        </div>
+        ${outBox(it)}`;
+      $('#mt').oninput = calc; $('#got').oninput = calc; calc();
+      return;
+    }
+
+    const others = rec.filter(r => r !== main);
+    $('#body').innerHTML = `
+      <div class="card"><h3>วัตถุดิบ</h3>
+        <div class="xs mut" style="margin:-4px 0 10px">สูตร 1 ชุด = ${fmt(num(rec[0].batch_kg),3)} กก.
+          → ${fmt(num(rec[0].batch_units))} ${esc(outUnit)} (${esc(outUnit)}ละ ${fmt(gpb)} กรัม)</div>
+
+        <div class="li" style="border-top:1px solid var(--line)">
+          <div class="nm">⭐ ${esc(main.label)}
+            <small>สูตร ${fmt(num(main.qty_per_batch),3)} ${esc(main.unit_base)}/ชุด · คลังมี ${fmt(num(main.on_hand),2)}</small></div>
+          <input type="number" inputmode="decimal" min="0" step="any" id="mainq"
+                 value="${num(main.qty_per_batch)}" placeholder="0">
+          <div class="u">${esc(main.unit_base)}</div>
+        </div>
+        <div class="xs mut" style="margin:4px 0 10px">กรอกเฉพาะตัวนี้ ตัวอื่นระบบปรับตามอัตราส่วนให้เอง</div>
+
+        ${others.length ? `<div class="lst" id="oth">${others.map(r=>`
+          <div class="li" data-o="${r.input_item_id}" data-per="${r.qty_per_batch}">
+            <div class="nm">${esc(r.label)}<small>คลังมี ${fmt(num(r.on_hand),2)} ${esc(r.unit_base)}</small></div>
+            <div class="v calcq" style="font-size:16px;font-weight:600;min-width:74px;text-align:right">0</div>
+            <div class="u">${esc(r.unit_base)}</div>
+          </div>`).join('')}</div>` : ''}
+
+        <div class="tot"><span class="sm mut">รวม <span id="nb"></span></span>
+          <span class="big" id="tk">0 <span class="sm mut">กก.</span></span></div>
       </div>
-      <div class="card"><h3>บรรจุได้กี่กระปุก</h3>
-        <input id="got" type="number" inputmode="numeric" min="0" step="1"
-          value="${recipe.length ? Math.floor(cupsPerBatch * n) : ''}" placeholder="0">
-        <div class="tot" style="margin-top:12px">
-          <span class="sm mut">ควรได้จากน้ำหนักที่ใช้</span><span class="big" id="should">0 <span class="sm mut">กระปุก</span></span></div>
-        <div id="cmp" class="xs" style="margin-top:8px"></div>
-      </div>`;
-    $('#mt').oninput = calc;
+      ${outBox(it)}`;
+    $('#mainq').oninput = calc;
     $('#got').oninput = calc;
     calc();
   };
 
+  const outBox = it => `
+    <div class="card"><h3>บรรจุได้กี่${esc(outUnit)}</h3>
+      <input id="got" type="number" inputmode="numeric" min="0" step="1" placeholder="0">
+      <div class="tot" style="margin-top:12px">
+        <span class="sm mut">ควรได้จากน้ำหนักที่ใช้</span>
+        <span class="big" id="should">0 <span class="sm mut">${esc(outUnit)}</span></span></div>
+      <div id="cmp" class="xs" style="margin-top:8px"></div>
+    </div>`;
+
   const calc = ()=>{
     let kg = 0;
-    document.querySelectorAll('#mt .li[data-m]').forEach(li=>{ kg += num(li.querySelector('.mq').value); });
+    if(rec.length && main){
+      const mq = num($('#mainq').value);
+      const f  = num(main.qty_per_batch) > 0 ? mq / num(main.qty_per_batch) : 0;
+      kg = mq;
+      document.querySelectorAll('#oth .li[data-o]').forEach(li=>{
+        const q = num(li.dataset.per) * f;
+        li.querySelector('.calcq').textContent = fmt(q, 3);
+        li.style.opacity = q > 0 ? 1 : .55;
+        kg += q;
+      });
+      $('#nb').textContent = f ? `(= ${fmt(f,2)} ชุด)` : '';
+    } else {
+      document.querySelectorAll('#mt .li[data-m]').forEach(li=>{ kg += num(li.querySelector('.mq').value); });
+    }
     $('#tk').innerHTML = `${fmt(kg,3)} <span class="sm mut">กก.</span>`;
-    const should = Math.floor(kg * 1000 / gpc);
-    $('#should').innerHTML = `${fmt(should)} <span class="sm mut">กระปุก</span>`;
-    const got = num($('#got').value);
-    const d = got - should;
+    const should = Math.floor(kg * 1000 / gpb);
+    $('#should').innerHTML = `${fmt(should)} <span class="sm mut">${esc(outUnit)}</span>`;
+    const got = num($('#got').value), d = got - should;
     $('#cmp').innerHTML = (!got || !should) ? '' :
       (d === 0 ? '<span class="diffz">ตรงพอดี 👍</span>'
-       : `<span class="${d<0?'diffneg':'diffpos'}">${d>0?'ได้เกิน':'ได้ขาด'} ${fmt(Math.abs(d))} กระปุก</span>
-          <span class="mut"> — ${d<0?'ซอสหกหรือเหลือติดภาชนะ' : 'บรรจุน้อยกว่า 20 กรัม/กระปุก'}</span>`);
+       : `<span class="${d<0?'diffneg':'diffpos'}">${d>0?'ได้เกิน':'ได้ขาด'} ${fmt(Math.abs(d))} ${esc(outUnit)}</span>
+          <span class="mut"> — ${d<0?`ของหก เหลือเศษ หรือใส่เกิน ${fmt(gpb)} กรัม` : `ใส่น้อยกว่า ${fmt(gpb)} กรัม/${esc(outUnit)}`}</span>`);
   };
 
   $('#sv').onchange = load;
   $('#d').onchange  = load;
-  $('#bt').oninput  = ()=>{ if(recipe.length) draw(); };
   load();
 
   $('#save').onclick = async e=>{
     const sid = $('#sv').value;
-    const inputs = [...document.querySelectorAll('#mt .li[data-m]')]
-      .map(li=>({ item: li.dataset.m, qty: num(li.querySelector('.mq').value) }))
-      .filter(r=>r.qty > 0);
+    let inputs = [];
+    if(rec.length && main){
+      const mq = num($('#mainq').value);
+      if(mq <= 0) return toast('ยังไม่ได้กรอกวัตถุดิบหลัก','bad');
+      const f = mq / num(main.qty_per_batch);
+      inputs.push({ item: main.input_item_id, qty: mq });
+      rec.filter(r=>r!==main).forEach(r=>{
+        const q = Math.round(num(r.qty_per_batch) * f * 1000) / 1000;
+        if(q > 0) inputs.push({ item: r.input_item_id, qty: q });
+      });
+    } else {
+      inputs = [...document.querySelectorAll('#mt .li[data-m]')]
+        .map(li=>({ item: li.dataset.m, qty: num(li.querySelector('.mq').value) }))
+        .filter(r=>r.qty > 0);
+      if(!inputs.length) return toast('ยังไม่ได้กรอกวัตถุดิบที่ใช้','bad');
+    }
     const got = num($('#got').value);
-    if(!inputs.length) return toast('ยังไม่ได้กรอกวัตถุดิบที่ใช้','bad');
-    if(got <= 0) return toast('ยังไม่ได้กรอกจำนวนกระปุกที่บรรจุได้','bad');
+    if(got <= 0) return toast(`ยังไม่ได้กรอกจำนวน${outUnit}ที่ได้`,'bad');
     busy(e.target,true);
     const { error } = await sb.rpc('fn_save_production',{
       p_kind:'sauce_fill', p_branch:S.loc.id, p_on:$('#d').value,
@@ -747,7 +810,7 @@ function scSauce(){
     });
     busy(e.target,false,'บันทึก');
     if(error) return toast(errMsg(error),'bad');
-    done(`บรรจุ ${fmt(got)} กระปุกแล้ว`);
+    done(`บรรจุ ${fmt(got)} ${outUnit}แล้ว`);
   };
 }
 
@@ -1044,6 +1107,62 @@ function scWaste(){
 /* ============================================================
    9 · ภาพรวม (เจ้าของ)
    ============================================================ */
+/* ============================================================
+   10 · เช็กลิสต์ประจำวัน — ใครส่งรายงานแล้ว ใครยังไม่ส่ง
+   ============================================================ */
+async function scCheck(day){
+  const d = day || today();
+  app.innerHTML = header('เช็กลิสต์วันนี้','', viewHome) + `<main>
+    <div class="fld"><label class="fl">วันที่</label><input id="d" type="date" value="${d}"></div>
+    <div id="body"><div class="ldg">กำลังตรวจ…</div></div>
+  </main>`;
+  wire(viewHome);
+  $('#d').onchange = ()=> scCheck($('#d').value);
+
+  const { data, error } = await sb.rpc('fn_daily_checklist', { p_on: d });
+  if(error){ $('#body').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  const rows = data || [];
+  if(!rows.length){ $('#body').innerHTML = '<div class="note">ไม่มีสาขาที่เปิดอยู่ในวันนี้</div>'; return; }
+
+  // จัดกลุ่มตามที่ตั้ง · ที่ยังไม่ครบขึ้นก่อน
+  const g = new Map();
+  rows.forEach(r=>{
+    if(!g.has(r.branch_name)) g.set(r.branch_name, { kind:r.branch_kind, tasks:[] });
+    g.get(r.branch_name).tasks.push(r);
+  });
+  const list = [...g.entries()].sort((a,b)=>{
+    const na = a[1].tasks.filter(t=>!t.done).length, nb = b[1].tasks.filter(t=>!t.done).length;
+    if(na !== nb) return nb - na;
+    if(a[1].kind !== b[1].kind) return a[1].kind === 'factory' ? -1 : 1;
+    return a[0].localeCompare(b[0],'th');
+  });
+
+  const doneN = rows.filter(r=>r.done).length, allN = rows.length;
+  const late  = list.filter(([,v])=>v.tasks.some(t=>!t.done));
+  const pct   = Math.round(doneN/allN*100);
+  const hhmm  = t => t ? new Date(t).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Bangkok'}) : '';
+
+  $('#body').innerHTML = `
+    <div class="card">
+      <div class="seg"><span class="sm mut">ส่งครบแล้ว</span>
+        <span class="p">${doneN} <span class="mut xs">/ ${allN} รายการ · ${pct}%</span></span></div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="xs ${late.length?'':'mut'}" style="margin-top:6px">${late.length
+        ? `<span class="diffpos">ยังไม่ครบ ${late.length} ที่:</span> ${late.map(([n])=>esc(n)).join(' · ')}`
+        : 'ครบทุกที่แล้ว 👍'}</div>
+    </div>
+    ${list.map(([name, v])=>`
+      <div class="card">
+        <h3>${v.kind==='factory'?'🏭':(v.kind==='popup'?'⛺':'🏬')} ${esc(name)}</h3>
+        ${v.tasks.map(t=>`<div class="ck ${t.done?'':'no'}">
+          <div class="mk">${t.done?'✅':'⬜'}</div>
+          <div class="bd"><b>${esc(t.task_label)}</b>
+            <span>${t.done && t.by_name ? `${esc(t.by_name)} · ${hhmm(t.done_at)}` : esc(t.detail||'')}</span></div>
+        </div>`).join('')}
+      </div>`).join('')}
+    <div class="xs mut" style="margin-bottom:20px">หน้านี้บอกแค่ว่ามีอะไรส่งเข้ามาแล้วบ้าง ไม่ได้ตัดสินว่าใครผิด · เปลี่ยนวันที่ด้านบนเพื่อดูย้อนหลังได้</div>`;
+}
+
 async function scDash(){
   app.innerHTML = header('ภาพรวมทั้งบริษัท','', viewHome) + `<main><div class="ldg">กำลังรวมตัวเลข…</div></main>`;
   wire(viewHome);

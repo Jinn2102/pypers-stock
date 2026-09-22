@@ -92,6 +92,10 @@ td.n,th.n{text-align:right}
 .names button{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:13px;
   padding:16px 8px;font-size:17px;font-weight:600;font-family:inherit;cursor:pointer}
 .names button:active{background:var(--acc)}
+.sheet{position:fixed;inset:0;background:rgba(17,20,24,.55);display:flex;align-items:flex-end;justify-content:center;z-index:60;padding:0}
+.sheetbox{background:var(--card,#fff);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+.tok{font:700 34px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.22em;text-align:center;padding:14px 0 6px}
+.sheetbox .btn{margin-top:8px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:99;
   background:#22262f;border:1px solid var(--line);border-radius:12px;padding:13px 18px;font-size:15px;
   max-width:92vw;box-shadow:0 10px 30px rgba(0,0,0,.5)}
@@ -443,6 +447,8 @@ async function viewHome(){
       <div class="ar">›</div></button>`).join('')}
     ${seeDash?`<button class="tile" data-go="check">
       <div class="ic">🗒️</div><div class="tx"><b>เช็กลิสต์วันนี้${nTodo?` <span class="badge">${nTodo} ยังไม่ส่ง</span>`:''}</b><span>ใครส่งรายงานแล้ว ใครยังไม่ส่ง</span></div><div class="ar">›</div></button>`:''}
+    ${seeDash?`<button class="tile" data-go="line">
+      <div class="ic">💬</div><div class="tx"><b>ส่งรหัสให้พนักงาน</b><span>ผูก LINE ส่วนตัว แล้วระบบส่งรหัส+ลิงก์ให้เอง</span></div><div class="ar">›</div></button>`:''}
     ${seeDash?`<button class="tile" data-go="dash">
       <div class="ic">📊</div><div class="tx"><b>ภาพรวมทั้งบริษัท</b><span>ของคงเหลือทุกที่ แยกทุกไส้ ครบทุกรายการ</span></div><div class="ar">›</div></button>`:''}
     <button class="btn gh sm2" id="out" style="margin-top:16px">ออกจากระบบ</button>
@@ -452,7 +458,7 @@ async function viewHome(){
   app.querySelector('main').onclick = e => {
     const t = e.target.closest('[data-go]'); if(!t) return;
     ({make:scMake, roll:scRoll, sauce:scSauce, ship:scShip,
-      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, dash:scDash, check:scCheck})[t.dataset.go]();
+      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, dash:scDash, check:scCheck, line:scLine})[t.dataset.go]();
   };
 }
 
@@ -1161,6 +1167,83 @@ async function scCheck(day){
         </div>`).join('')}
       </div>`).join('')}
     <div class="xs mut" style="margin-bottom:20px">หน้านี้บอกแค่ว่ามีอะไรส่งเข้ามาแล้วบ้าง ไม่ได้ตัดสินว่าใครผิด · เปลี่ยนวันที่ด้านบนเพื่อดูย้อนหลังได้</div>`;
+}
+
+/* ============================================================
+   11 · ส่งรหัสให้พนักงานทาง LINE ส่วนตัว
+   ============================================================ */
+const LINE_OA = '@049pmwex';
+
+async function scLine(){
+  app.innerHTML = header('ส่งรหัสให้พนักงาน','', viewHome) + `<main>
+    <div class="card">
+      <div class="xs mut">ระบบจะส่ง <b>รหัส 6 หลัก</b> กับ <b>ลิงก์เข้าระบบ</b> เข้า LINE ส่วนตัวของน้องเอง
+      หลังจากน้องผูกบัญชีแล้ว · รหัสไม่ผ่านมือใคร ไม่มีใครเห็นนอกจากเจ้าตัว</div>
+    </div>
+    <div id="body"><div class="ldg">กำลังโหลดรายชื่อ…</div></div>
+  </main>`;
+  wire(viewHome);
+
+  const { data, error } = await sb.rpc('fn_link_status');
+  if(error){ $('#body').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  const rows = data || [];
+  const no = rows.filter(r=>!r.linked), yes = rows.filter(r=>r.linked);
+  const hhmm = t => t ? new Date(t).toLocaleDateString('th-TH',{day:'numeric',month:'short',timeZone:'Asia/Bangkok'}) : '';
+
+  const person = r => `<div class="ck ${r.linked?'':'no'}">
+      <div class="mk">${r.linked?'✅':'⬜'}</div>
+      <div class="bd"><b>${esc(r.nickname)}</b><span>${r.linked?`ผูก LINE แล้ว · ${hhmm(r.linked_at)}`:esc(r.job_type||'')}</span></div>
+      <button class="btn gh sm2" style="width:auto;padding:8px 12px" data-emp="${r.employee_id}" data-nick="${esc(r.nickname)}">${r.linked?'ออกโค้ดใหม่':'ออกโค้ด'}</button>
+    </div>`;
+
+  $('#body').innerHTML = `
+    <div class="card">
+      <div class="seg"><span class="sm mut">ผูก LINE แล้ว</span>
+        <span class="p">${yes.length} <span class="mut xs">/ ${rows.length} คน</span></span></div>
+      <div class="bar"><i style="width:${rows.length?Math.round(yes.length/rows.length*100):0}%"></i></div>
+    </div>
+    ${no.length?`<div class="card"><h3>⬜ ยังไม่ได้ผูก (${no.length})</h3>${no.map(person).join('')}</div>`:''}
+    ${yes.length?`<div class="card"><h3>✅ ผูกแล้ว (${yes.length})</h3>${yes.map(person).join('')}</div>`:''}
+    <div class="xs mut" style="margin-bottom:20px">ถ้าน้องลืมรหัส ให้น้องพิมพ์ <b>ขอรหัสใหม่</b> ในแชท LINE ของร้านได้เอง ไม่ต้องมาถาม</div>`;
+
+  $('#body').onclick = async e => {
+    const b = e.target.closest('[data-emp]'); if(!b) return;
+    busy(b, true);
+    const { data, error } = await sb.rpc('fn_make_link_token', { p_employee: b.dataset.emp, p_bot_id: LINE_OA });
+    busy(b, false);
+    if(error) return toast(errMsg(error),'bad');
+    const r = (data||[])[0]; if(!r) return toast('ออกโค้ดไม่สำเร็จ','bad');
+    showToken(r);
+  };
+}
+
+function showToken(r){
+  const msg = `${r.nickname} — เข้าระบบสต๊อก Pyper's\n\n1) แอดไลน์ร้าน: https://line.me/R/ti/p/${LINE_OA}\n2) กดลิงก์นี้ในมือถือตัวเอง:\n${r.deep_link}\n\nหรือพิมพ์ในแชทว่า:  ผูกบัญชี ${r.token}\n\nแล้วระบบจะส่งรหัส 6 หลักกับลิงก์เข้าระบบให้ทาง LINE`;
+  const wrap = document.createElement('div');
+  wrap.className = 'sheet';
+  wrap.innerHTML = `<div class="sheetbox">
+    <h3 style="margin:0 0 4px">โค้ดของ ${esc(r.nickname)}</h3>
+    <div class="tok">${esc(r.token)}</div>
+    <div class="xs mut" style="text-align:center;margin-bottom:12px">ใช้ได้ครั้งเดียว · หมดอายุใน 7 วัน</div>
+    <div class="note">ลิงก์นี้ต้องเปิด <b>ในมือถือของน้องเอง</b> ไม่ใช่เครื่องนี้ —
+    ถ้ากดเอง LINE ของเราจะไปผูกกับชื่อน้องแทน</div>
+    <button class="btn" id="tk_share">ส่งให้น้อง</button>
+    <button class="btn gh" id="tk_copy">คัดลอกข้อความ</button>
+    <button class="btn gh sm2" id="tk_close">ปิด</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = ()=>wrap.remove();
+  wrap.onclick = e => { if(e.target===wrap) close(); };
+  $('#tk_close').onclick = close;
+  $('#tk_copy').onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(msg); toast('คัดลอกแล้ว — ไปวางในแชทของน้องได้เลย','ok'); }
+    catch(err){ toast('คัดลอกไม่ได้ · กดค้างที่โค้ดแล้วคัดลอกเองได้','bad'); }
+  };
+  $('#tk_share').onclick = async ()=>{
+    if(navigator.share){ try{ await navigator.share({ text: msg }); return; }catch(err){} }
+    try{ await navigator.clipboard.writeText(msg); toast('เครื่องนี้แชร์ตรงไม่ได้ · คัดลอกให้แล้ว','ok'); }
+    catch(err){ toast('คัดลอกไม่ได้','bad'); }
+  };
 }
 
 async function scDash(){

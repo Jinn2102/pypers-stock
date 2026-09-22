@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>วิธีใช้ระบบสต๊อก Pyper's</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0f1115; --card:#171a21; --card2:#1e222b; --line:#2a2f3a;
+  --tx:#e9ecf1; --mut:#8e97a8; --acc:#e8734a; --acc2:#f29470;
+  --ok:#3fb27f; --bad:#e2574c; --warn:#e0a63c;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--tx);
+  font-family:'IBM Plex Sans Thai',system-ui,sans-serif;font-size:16px;line-height:1.6}
+.wrap{max-width:680px;margin:0 auto;padding:0 14px 64px}
+h1{font-size:22px;margin:18px 0 4px}
+h2{font-size:19px;margin:34px 0 10px;padding-top:14px;border-top:1px solid var(--line)}
+h3{font-size:16px;margin:20px 0 8px;color:var(--acc2)}
+p{margin:8px 0}
+.lead{color:var(--mut);font-size:14px;margin:0 0 16px}
+
+/* แถบสลับ */
+.tabs{position:sticky;top:0;z-index:30;background:rgba(15,17,21,.95);backdrop-filter:blur(10px);
+  display:flex;gap:8px;padding:10px 0;border-bottom:1px solid var(--line);margin-bottom:6px}
+.tabs button{flex:1;background:var(--card);color:var(--mut);border:1px solid var(--line);
+  border-radius:12px;padding:11px 8px;font:600 15px/1 'IBM Plex Sans Thai',sans-serif;cursor:pointer}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+
+/* การ์ด */
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0}
+.note{background:rgba(232,115,74,.12);border:1px solid rgba(232,115,74,.4);
+  border-radius:12px;padding:12px 14px;margin:12px 0;font-size:14.5px}
+.ok{background:rgba(63,178,127,.12);border-color:rgba(63,178,127,.45)}
+.bad{background:rgba(226,87,76,.12);border-color:rgba(226,87,76,.45)}
+.warn{background:rgba(224,166,60,.12);border-color:rgba(224,166,60,.45)}
+
+/* ขั้นตอน */
+.step{display:flex;gap:12px;margin:18px 0}
+.num{flex:none;width:30px;height:30px;border-radius:50%;background:var(--acc);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}
+.step .bd{flex:1;min-width:0}
+.step .bd b{display:block;font-size:16.5px;margin-bottom:2px}
+
+/* จอมือถือจำลอง */
+.phone{background:var(--card2);border:1px solid var(--line);border-radius:14px;
+  padding:10px;margin:10px 0;font-size:13.5px}
+.phone .ph{font-size:11.5px;color:var(--mut);border-bottom:1px solid var(--line);
+  padding-bottom:6px;margin-bottom:8px;display:flex;justify-content:space-between}
+.row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:none}
+.row .nm{flex:1;min-width:0}
+.row .nm small{display:block;color:var(--mut);font-size:11.5px}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:8px;
+  padding:5px 8px;min-width:46px;text-align:center;font-weight:600}
+.box.hi{border-color:var(--acc);color:var(--acc2)}
+.u{color:var(--mut);font-size:12px}
+.btnx{background:var(--acc);color:#fff;border-radius:10px;padding:9px;text-align:center;
+  font-weight:600;margin-top:10px;font-size:14px}
+.tag{display:inline-block;background:var(--card2);border:1px solid var(--line);
+  border-radius:7px;padding:1px 7px;font-size:12.5px;color:var(--mut);margin:0 2px}
+
+table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:12.5px}
+td b{color:var(--acc2)}
+.hide{display:none}
+.big{font-size:26px;font-weight:700;letter-spacing:.05em}
+.mut{color:var(--mut)}
+.xs{font-size:13px}
+a{color:var(--acc2)}
+.tl{display:flex;gap:12px;margin:10px 0}
+.tl .t{flex:none;width:62px;font-weight:700;color:var(--acc2);font-size:14px}
+.tl .c{flex:1;font-size:14.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="tabs">
+  <button id="tf" class="on" onclick="pick('f')">🏭 โรงงาน</button>
+  <button id="tb" onclick="pick('b')">🏬 สาขา</button>
+</div>
+
+<h1>วิธีใช้ระบบสต๊อก Pyper's</h1>
+<p class="lead">เปิดจากมือถือได้เลย ไม่ต้องลงแอป · กดค้างที่ลิงก์แล้วเลือก <b>เพิ่มลงหน้าโฮม</b> จะใช้ง่ายเหมือนแอป</p>
+
+<div class="card">
+  <b>เข้าระบบยังไง</b>
+  <div class="step" style="margin:12px 0 0">
+    <div class="num">1</div><div class="bd">เปิด <a href="https://jinn2102.github.io/pypers-stock/">jinn2102.github.io/pypers-stock</a></div>
+  </div>
+  <div class="step"><div class="num">2</div><div class="bd">แตะ <b>ชื่อตัวเอง</b> ในรายการ</div></div>
+  <div class="step"><div class="num">3</div><div class="bd">ใส่ <b>รหัส 6 หลัก</b> ที่ได้ทางไลน์<div class="xs mut">ใส่ผิด 5 ครั้ง จะล็อก 15 นาที · ลืมรหัส พิมพ์ <span class="tag">ขอรหัสใหม่</span> ในไลน์ร้าน</div></div></div>
+  <div class="step"><div class="num">4</div><div class="bd">เลือกว่า <b>วันนี้อยู่ที่ไหน</b><div class="xs mut">ย้ายที่ทำงานเมื่อไหร่ กดปุ่ม "เปลี่ยน" มุมบนได้เลย</div></div></div>
+</div>
+
+<!-- ===================== โรงงาน ===================== -->
+<div id="F">
+
+<h2>🏭 งานประจำวันของโรงงาน</h2>
+<div class="tl"><div class="t">ระหว่างวัน</div><div class="c">ของเข้า → ทำไส้ → ม้วน → ผสม Dip → จัดของส่งสาขา</div></div>
+<div class="tl"><div class="t">ก่อนกลับ</div><div class="c">นับสต๊อกโรงงาน (ตามรอบที่เจ้าของบอก)</div></div>
+<div class="tl"><div class="t">20:00</div><div class="c">ไลน์สรุปโรงงานของวันนี้</div></div>
+<div class="tl"><div class="t">21:30</div><div class="c">ไลน์เตือน ถ้ายังมีอะไรไม่ได้ส่ง</div></div>
+
+<h3>📥 ของเข้าโรงงาน</h3>
+<p class="xs mut">ซื้อของเข้ามา หรือเจ้าของผสม Dip โพรวองส์มาส่ง — <b>กดบันทึกทุกครั้ง</b> ไม่งั้นระบบจะคิดว่าไม่มีของเข้า แล้วสต๊อกจะติดลบ</p>
+<div class="phone">
+  <div class="ph"><span>ของเข้าโรงงาน</span><span>22/09/2026</span></div>
+  <div class="row"><div class="nm">ของมาจากไหน</div><div class="box hi">ซื้อเข้า</div></div>
+  <div class="row"><div class="nm">ซื้อจากใคร / ใครทำ</div><div class="box hi">แม็คโคร</div></div>
+  <div class="row"><div class="nm">แป้ง</div><div class="box hi">1000</div><div class="u">แผ่น</div></div>
+  <div class="row"><div class="nm">ครีม debic duo UHT</div><div class="box hi">12</div><div class="u">กก.</div></div>
+  <div class="row"><div class="nm">ชีสพาเมซาน<small>ไม่ได้ซื้อวันนี้ — เว้นว่างไว้</small></div><div class="box mut">0</div><div class="u">กก.</div></div>
+  <div class="btnx">บันทึกของเข้า</div>
+</div>
+<div class="note ok"><b>ตัวอย่าง</b> เจ้าของผสม Dip โพรวองส์มาส่ง 200 กระปุก → เลือก <span class="tag">เจ้าของทำเองมาส่ง</span> → ใส่ 200 ที่บรรทัด "Dip ครีมเดอโพรวองส์"</div>
+
+<h3>🥣 ทำไส้</h3>
+<div class="note warn"><b>สำคัญที่สุด</b> ต้องใส่ <b>2 ช่อง</b> — <b>จำนวนสูตร</b> กับ <b>น้ำหนักที่ได้จริง</b><br>
+ระบบตัดวัตถุดิบจาก "จำนวนสูตร" · เอาของเข้าสต๊อกจาก "น้ำหนักจริง"</div>
+<div class="phone">
+  <div class="ph"><span>ทำไส้</span><span>22/09/2026</span></div>
+  <div class="row"><div class="nm">ทรัฟเฟิล<small>มีอยู่ 4.2 กก.</small></div><div class="box hi">1</div><div class="u">สูตร</div><div class="box hi">7.6</div><div class="u">กก.</div></div>
+  <div class="row"><div class="nm">เพสโต้ไก่ย่าง<small>มีอยู่ 0 กก.</small></div><div class="box hi">0.5</div><div class="u">สูตร</div><div class="box hi">16.8</div><div class="u">กก.</div></div>
+  <div class="row"><div class="nm">ซุปหัวหอม<small>ยังไม่มีสูตรตัดวัตถุดิบ</small></div><div class="box mut">0</div><div class="u">สูตร</div><div class="box hi">5</div><div class="u">กก.</div></div>
+  <div class="btnx">บันทึก</div>
+</div>
+<p class="xs"><b>ทำครึ่งสูตรก็ใส่ 0.5 ได้</b> · ทำ 2 สูตรใส่ 2 · เพสโต้ 1 สูตรได้ตั้ง 34 กก. ปกติทำไม่ถึงสูตรเต็ม</p>
+<p class="xs mut">กดบันทึกแล้วจะขึ้นให้ดูว่า <b>ควรได้กี่ กก. เทียบกับได้จริงกี่ กก.</b> — ต่างไม่เกิน 3% = ปกติ ✅ · เกิน 3% = ⚠️ ลองดูว่าชั่งพลาด ของหก หรือผัดนานไป</p>
+
+<table>
+  <tr><th>ไส้</th><th>1 สูตรได้</th><th>ตัดวัตถุดิบอะไร</th></tr>
+  <tr><td><b>ทรัฟเฟิล</b></td><td>7.882 กก.</td><td>ครีม 2 · ทรัฟเฟิลเพสต์ 0.5 · มายองเนส 0.1 · เนย 0.8</td></tr>
+  <tr><td><b>ผักโขม</b></td><td>7.680 กก.</td><td>ครีม 1 · เนย 0.5</td></tr>
+  <tr><td><b>เพสโต้ไก่ย่าง</b></td><td>34.000 กก.</td><td>พาเมซาน 2.5 · น้ำมันมะกอก 5 · เมล็ดทานตะวัน 2.5</td></tr>
+  <tr><td><b>ต้มยำกุ้ง</b></td><td>15.013 กก.</td><td>ครีม 3 · น้ำพริกต้มยำ 2.5</td></tr>
+  <tr><td>บีฟ · ซุปหัวหอม</td><td class="mut">—</td><td class="mut">ไม่ตัดอะไร ใส่แค่น้ำหนัก</td></tr>
+</table>
+
+<h3>🌯 ม้วน</h3>
+<p class="xs">เลือกไส้ → ใส่ว่าเบิกไส้ไปกี่ กก. → ใส่ว่าม้วนได้กี่ชิ้น → เลือกคนม้วน (หลายคนได้)</p>
+<div class="phone">
+  <div class="ph"><span>ม้วน · ทรัฟเฟิล</span><span>22/09/2026</span></div>
+  <div class="row"><div class="nm">เบิกไส้ออกมา</div><div class="box hi">6</div><div class="u">กก.</div></div>
+  <div class="row"><div class="nm">คืนเข้าตู้</div><div class="box hi">0</div><div class="u">กก.</div></div>
+  <div class="row"><div class="nm">มาลี ม้วนได้</div><div class="box hi">180</div><div class="u">ชิ้น</div></div>
+  <div class="row"><div class="nm">ซินเจีย ม้วนได้</div><div class="box hi">120</div><div class="u">ชิ้น</div></div>
+  <div class="row"><div class="nm mut xs">รอบก่อน ๆ: 19.8 · 20.2 กรัม/ชิ้น</div></div>
+  <div class="btnx">บันทึก</div>
+</div>
+<div class="note"><b>ระบบหักแป้งกับชีสมอสซาเรลลาให้เอง</b> — ปอเปี๊ยะ 1 ชิ้น = แป้ง 1 แผ่น + ชีส 15 กรัม ไม่ต้องกรอกเอง</div>
+<p class="xs mut">กดบันทึกแล้วจะเห็นว่ารอบนี้ได้กี่กรัม/ชิ้น เทียบกับรอบก่อน ๆ ของไส้ตัวเดียวกัน</p>
+
+<h3>🥫 ผสม / แบ่งบรรจุ Dip</h3>
+<p class="xs">เลือกของที่จะทำ → <b>กรอกวัตถุดิบหลักตัวเดียว</b> ตัวอื่นระบบคิดให้เอง แก้ไม่ได้ → ใส่ว่าได้จริงกี่กระปุก</p>
+<div class="phone">
+  <div class="ph"><span>ผสม / แบ่งบรรจุ</span><span>Dip ไพเปอร์ 20 กรัม</span></div>
+  <div class="row"><div class="nm">ซอสพิซซ่าคนอร์ <small>วัตถุดิบหลัก — กรอกช่องนี้</small></div><div class="box hi">3</div><div class="u">กก.</div></div>
+  <div class="row"><div class="nm">ซอสพิซซ่าเพียวฟู้ดส์ <small>ระบบคิดให้</small></div><div class="box mut">3</div><div class="u">กก.</div></div>
+  <div class="row"><div class="nm">ได้จริง</div><div class="box hi">290</div><div class="u">กระปุก</div></div>
+  <div class="btnx">บันทึก</div>
+</div>
+<div class="note warn">Dip <b>ครีมเดอโพรวองส์</b> ไม่มีในหน้านี้ — เจ้าของผสมเอง แล้วบันทึกที่หน้า <b>ของเข้าโรงงาน</b></div>
+
+<h3>🚚 จัดของส่งสาขา</h3>
+<p class="xs">เลือกสาขาปลายทาง → ระบบเติมตัวเลขให้จากความจุตู้ × สัดส่วนที่สาขานั้นขายได้จริง → <b>แก้ทับได้ทุกช่อง</b></p>
+<div class="phone">
+  <div class="ph"><span>จัดของส่งสาขา</span><span>→ เซ็นทรัล พระราม 3</span></div>
+  <div class="row"><div class="nm">ทรัฟเฟิล<small>ที่นี่มี 6 กล่อง + 40 ชิ้น · สาขาขายได้ 20%</small></div><div class="box hi">4</div><div class="u">กล่อง</div><div class="u">+</div><div class="box hi">20</div><div class="u">ชิ้น</div></div>
+  <div class="row"><div class="nm">Dip ไพเปอร์ 20 กรัม<small>ที่นี่มี 290 กระปุก</small></div><div class="box hi">60</div><div class="u">กระปุก</div></div>
+  <div class="btnx">ออกใบส่งของ</div>
+</div>
+<div class="note ok"><b>ไม่เต็มกล่องก็ส่งได้</b> ใส่เศษในช่องหลังเครื่องหมาย + · กล่องละ 60 ชิ้น</div>
+<div class="note bad"><b>ออกใบผิด?</b> เลื่อนลงล่างสุด → การ์ด <b>"ใบที่ออกไปวันนี้"</b> → กด <b>ยกเลิก</b> → ใส่เหตุผล → ของกลับเข้าสต๊อกทันที แล้วออกใบใหม่<br>
+<span class="xs">ยกเลิกได้เฉพาะใบที่ปลายทาง <b>ยังไม่กดรับ</b> · ถ้ารับไปแล้วต้องให้สาขาส่งคืน</span></div>
+
+<h3>📥 รับของคืนจากสาขา · 📋 นับสต๊อก · 🗑️ แจ้งของเสีย</h3>
+<p class="xs">ใช้เหมือนฝั่งสาขาทุกอย่าง — <b>กดแท็บ 🏬 สาขา ข้างบน</b> เพื่อดูวิธี</p>
+
+</div>
+
+<!-- ===================== สาขา ===================== -->
+<div id="B" class="hide">
+
+<h2>🏬 งานประจำวันของสาขา</h2>
+<div class="tl"><div class="t">ของมาถึง</div><div class="c">กด <b>รับของ</b> ทันที นับของจริงก่อนเซ็นรับ</div></div>
+<div class="tl"><div class="t">ระหว่างวัน</div><div class="c">ของเสีย → แจ้งพร้อมรูป · ส่งของไปสาขาอื่น → ออกใบทุกครั้ง</div></div>
+<div class="tl"><div class="t">ก่อนปิดร้าน</div><div class="c"><b>นับสต๊อกประจำวัน</b> — ทุกวัน ห้ามข้าม</div></div>
+<div class="tl"><div class="t">21:30</div><div class="c">ไลน์เตือน ถ้าสาขายังไม่ส่งยอดนับ</div></div>
+
+<h3>📦 รับของ</h3>
+<div class="note"><b>นับของจริงก่อนกดรับเสมอ</b> ระบบเติมตัวเลข "ตามใบ" มาให้แล้ว ถ้าตรงก็ไม่ต้องแก้ · ถ้าไม่ตรงให้แก้เป็นที่ <b>นับได้จริง</b></div>
+<div class="phone">
+  <div class="ph"><span>รับของ · TR260922-001</span><span>จาก โรงงาน</span></div>
+  <div class="row"><div class="nm">ทรัฟเฟิล<small>ตามใบ 4 กล่อง + 20 ชิ้น</small></div><div class="box hi">4</div><div class="u">กล่อง</div><div class="u">+</div><div class="box hi">20</div><div class="u">ชิ้น</div></div>
+  <div class="row"><div class="nm">Dip ไพเปอร์ 20 กรัม<small>ตามใบ 60 กระปุก</small></div><div class="box hi">58</div><div class="u">กระปุก</div></div>
+  <div class="btnx">ยืนยันรับของ</div>
+</div>
+<div class="note warn"><b>ตัวอย่าง</b> ใบบอก 60 กระปุก แต่นับได้ 58 → <b>ใส่ 58</b> อย่าใส่ 60 ให้ตรงใบ<br>
+<span class="xs">ส่วนต่าง 2 กระปุกจะขึ้นให้เจ้าของเห็นทันที ไม่ได้แปลว่าใครผิด แต่ถ้าไม่บันทึกไว้ ของจะหายเงียบ ๆ</span></div>
+
+<h3>📋 นับสต๊อกประจำวัน</h3>
+<div class="note bad"><b>ทำทุกวันก่อนปิดร้าน</b> ไม่ทำ = ชื่อสาขาจะขึ้นในไลน์ตอน 21:30 ว่ายังไม่ส่ง</div>
+<div class="phone">
+  <div class="ph"><span>นับสต๊อกประจำวัน</span><span>เซ็นทรัล พระราม 3</span></div>
+  <div class="row"><div class="nm">ทรัฟเฟิล<small>1 กล่อง = 60 ชิ้น</small></div><div class="box hi">3</div><div class="u">กล่อง</div><div class="box hi">25</div><div class="u">ชิ้น</div></div>
+  <div class="row"><div class="nm">ผักโขม<small>1 กล่อง = 60 ชิ้น</small></div><div class="box hi">2</div><div class="u">กล่อง</div><div class="box hi">0</div><div class="u">ชิ้น</div></div>
+  <div class="row"><div class="nm">Dip ไพเปอร์ 20 กรัม</div><div class="box hi">44</div><div class="u">กระปุก</div></div>
+  <div class="btnx">ส่งผลการนับ</div>
+</div>
+<div class="note"><b>หน้านี้จะไม่บอกว่า "ควรเหลือเท่าไหร่"</b> — ตั้งใจให้เป็นแบบนั้น จะได้นับของจริง ไม่ใช่กรอกตามเลขที่เห็น<br>
+<span class="xs">กดส่งแล้วถึงเห็นว่าตรงหรือต่าง</span></div>
+<div class="note ok"><b>กรอกผิด?</b> นับใหม่ส่งซ้ำได้เลย ไม่ต้องขออนุญาตใคร ระบบจะยึดครั้งล่าสุด ตัวเลขวิ่งตามเอง</div>
+
+<h3>🗑️ แจ้งของเสีย</h3>
+<div class="note bad"><b>ต้องมีรูปทุกครั้ง</b> ไม่มีรูป = บันทึกไม่ได้ (ระบบบังคับ ไม่ใช่แค่หน้าจอ)</div>
+<p class="xs">เลือกเหตุผล → ถ่ายรูปของที่เสีย → ใส่จำนวน → บันทึก</p>
+
+<h3>↔️ ส่งของไปที่อื่น</h3>
+<p class="xs">ส่งให้สาขาอื่น หรือส่งคืนโรงงาน ใช้หน้านี้ — <b>ต้องใส่เหตุผลทุกครั้ง</b></p>
+<div class="phone">
+  <div class="ph"><span>ส่งของไปที่อื่น</span><span>→ เซ็นทรัลเวิลด์</span></div>
+  <div class="row"><div class="nm">เหตุผล</div><div class="box hi">ของหมดกะทันหัน</div></div>
+  <div class="row"><div class="nm">ทรัฟเฟิล<small>ที่นี่มี 3 กล่อง + 25 ชิ้น</small></div><div class="box hi">1</div><div class="u">กล่อง</div><div class="u">+</div><div class="box hi">0</div><div class="u">ชิ้น</div></div>
+  <div class="btnx">ออกใบส่งของ</div>
+</div>
+<div class="note warn"><b>ห้ามยกของไปเฉย ๆ โดยไม่ออกใบ</b> ไม่งั้นสาขาต้นทางจะดูเหมือนของหาย และปลายทางจะดูเหมือนของเกิน</div>
+
+</div>
+
+<!-- ===================== ส่วนกลาง ===================== -->
+<h2>💬 ไลน์ร้าน</h2>
+<table>
+  <tr><th>พิมพ์อะไร</th><th>ได้อะไร</th></tr>
+  <tr><td><span class="tag">สรุป</span></td><td>ดูว่าตอนนี้ที่ไหนยังไม่ส่งอะไร</td></tr>
+  <tr><td><span class="tag">ขอรหัสใหม่</span></td><td>ระบบตั้งรหัส 6 หลักใหม่ ส่งให้ทางไลน์</td></tr>
+  <tr><td><span class="tag">ปิดแจ้งเตือน</span></td><td>หยุดรับข้อความ · เปิดใหม่พิมพ์ <span class="tag">เปิดแจ้งเตือน</span></td></tr>
+</table>
+<p class="xs mut">ไลน์จะเด้งเองตอน <b>21:30</b> ถ้ายังมีที่ไหนไม่ได้ส่งงาน · ถ้าส่งครบแล้วจะไม่เด้งเลย</p>
+
+<h2>❓ เจอปัญหาบ่อย</h2>
+<div class="card">
+  <p><b>เข้าไม่ได้ / ลืมรหัส</b><br><span class="xs mut">พิมพ์ <span class="tag">ขอรหัสใหม่</span> ในไลน์ร้าน ระบบส่งรหัสใหม่ให้ทันที ไม่ต้องรอใคร</span></p>
+  <p><b>ใส่ผิดครั้งเดียวแล้วส่งไปแล้ว</b><br><span class="xs mut">นับสต๊อก → นับใหม่ส่งซ้ำได้เลย · ใบส่งของ → กดยกเลิกแล้วออกใหม่ · อย่างอื่นบอกเจ้าของ</span></p>
+  <p><b>ตัวเลข "ที่นี่มี" ไม่ตรงกับของจริง</b><br><span class="xs mut">ไม่เป็นไร กรอกของจริงไปเลย ระบบจะปรับตามให้ตอนนับสต๊อก</span></p>
+  <p><b>สต๊อกขึ้นติดลบ</b><br><span class="xs mut">แปลว่ายังไม่เคยนับหรือยังไม่บันทึกของเข้า ไม่ใช่ของหาย — บอกเจ้าของได้</span></p>
+  <p style="margin-bottom:0"><b>ไม่แน่ใจว่าต้องกรอกอะไร</b><br><span class="xs mut">กรอกเท่าที่รู้จริง อย่าเดา อย่าใส่ให้ตรงตัวเลขที่ระบบโชว์ ระบบมีไว้จับความจริง ไม่ได้มีไว้จับผิดคน</span></p>
+</div>
+
+<p class="xs mut" style="margin-top:28px;text-align:center">Pyper's · ระบบสต๊อก · อัปเดต 22 ก.ย. 2026</p>
+</div>
+
+<script>
+function pick(k){
+  var f = k==='f';
+  document.getElementById('F').className = f?'':'hide';
+  document.getElementById('B').className = f?'hide':'';
+  document.getElementById('tf').className = f?'on':'';
+  document.getElementById('tb').className = f?'':'on';
+  try{ localStorage.setItem('help_tab', k); }catch(e){}
+  window.scrollTo(0,0);
+}
+try{ var s = localStorage.getItem('help_tab'); if(s) pick(s); }catch(e){}
+</script>
+</body>
+</html>

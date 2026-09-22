@@ -1447,7 +1447,7 @@ async function scLine(){
   };
 }
 
-function showToken(r){
+function showToken(r, pin){
   const msg = `${r.nickname} — เข้าระบบสต๊อก Pyper's\n\n1) แอดไลน์ร้าน: https://line.me/R/ti/p/${LINE_OA}\n2) กดลิงก์นี้ในมือถือตัวเอง:\n${r.deep_link}\n\nหรือพิมพ์ในแชทว่า:  ผูกบัญชี ${r.token}\n\nแล้วระบบจะส่งรหัส 6 หลักกับลิงก์เข้าระบบให้ทาง LINE ส่วนตัว\nและเปิดแจ้งเตือนให้อัตโนมัติ ไม่ต้องทำอะไรเพิ่ม`;
   const wrap = document.createElement('div');
   wrap.className = 'sheet';
@@ -1459,12 +1459,14 @@ function showToken(r){
     ถ้ากดเอง LINE ของเราจะไปผูกกับชื่อน้องแทน</div>
     <button class="btn" id="tk_share">ส่งให้น้อง</button>
     <button class="btn gh" id="tk_copy">คัดลอกข้อความ</button>
+    ${pin?`<button class="btn gh sm2" id="tk_pin">ไม่มี LINE — ดูรหัส 6 หลักแทน</button>`:''}
     <button class="btn gh sm2" id="tk_close">ปิด</button>
   </div>`;
   document.body.appendChild(wrap);
   const close = ()=>wrap.remove();
   wrap.onclick = e => { if(e.target===wrap) close(); };
   $('#tk_close').onclick = close;
+  if($('#tk_pin')) $('#tk_pin').onclick = ()=>{ close(); showNewPin({ nickname:r.nickname, pin }); };
   $('#tk_copy').onclick = async ()=>{
     try{ await navigator.clipboard.writeText(msg); toast('คัดลอกแล้ว — ไปวางในแชทของน้องได้เลย','ok'); }
     catch(err){ toast('คัดลอกไม่ได้ · กดค้างที่โค้ดแล้วคัดลอกเองได้','bad'); }
@@ -1659,13 +1661,24 @@ function formStaff(r){
     try{
       if(isNew){
         const res = await staffApi({ action:'add', ...p, role: $('#f_role').value });
-        s.close(); await loadStaff(); showNewPin(res);
+        s.close(); await loadStaff(); await afterAdd(res);
       }else{
         await staffApi({ action:'edit', employee_id:r.employee_id, ...p });
         s.close(); toast('บันทึกแล้ว','ok'); await loadStaff();
       }
     }catch(err){ busy(b,false, isNew?'เพิ่มพนักงาน':'บันทึกการแก้ไข'); toast(errMsg(err),'bad'); }
   };
+}
+
+// เพิ่มคนเสร็จ → ออกโค้ดผูก LINE ให้เลย รหัสจะได้ไม่ผ่านมือหัวหน้า
+async function afterAdd(res){
+  try{
+    const { data, error } = await sb.rpc('fn_make_link_token', { p_employee: res.employee_id, p_bot_id: LINE_OA });
+    if(error) throw error;
+    const r = (data||[])[0]; if(!r) throw new Error('no token');
+    toast(`เพิ่ม ${res.nickname} แล้ว — ส่งลิงก์ให้น้องผูก LINE ได้เลย`,'ok');
+    showToken({ ...r, nickname: r.nickname || res.nickname }, res.pin);
+  }catch(e){ showNewPin(res); }
 }
 
 function showNewPin(res){

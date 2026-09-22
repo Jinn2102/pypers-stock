@@ -142,6 +142,7 @@ hr.d{border:none;border-top:1px solid var(--line);margin:14px 0}
 .ck.no .bd b{color:var(--warn)}
 .bar{height:8px;background:var(--card2);border-radius:5px;overflow:hidden;margin:10px 0 4px}
 .bar i{display:block;height:100%;background:var(--ok);border-radius:5px}
+.plus{color:var(--mut);font-size:13px;padding:0 2px}
 .diffneg{color:var(--bad);font-weight:600}
 .diffpos{color:var(--warn);font-weight:600}
 .diffz{color:var(--ok);font-weight:600}
@@ -196,6 +197,7 @@ const SCREENS = [
   {id:'ship',  ic:'🚚', nm:'จัดของส่งสาขา',     sb:'ระบบคิดให้ว่าส่งอะไรกี่ถุง',            at:'factory'},
   {id:'recv',  ic:'📥', nm:'รับของคืนจากสาขา',  sb:'ตรวจของที่สาขาส่งกลับมา',               at:'factory'},
   {id:'count', ic:'📋', nm:'นับสต๊อกโรงงาน',    sb:'นับของจริง แล้วเทียบกับที่ควรเหลือ',   at:'factory'},
+  {id:'inn',   ic:'📥', nm:'ของเข้าโรงงาน',      sb:'ซื้อวัตถุดิบเข้า หรือเจ้าของทำเองมาส่ง', at:'factory'},
   {id:'waste', ic:'🗑️', nm:'แจ้งของเสีย',       sb:'ต้องถ่ายรูปหลักฐานทุกครั้ง',            at:'factory'},
 
   {id:'count', ic:'📋', nm:'นับสต๊อกประจำวัน',  sb:'นับถุงที่ยังไม่แกะ + ชิ้นที่แกะแล้ว',  at:'branch'},
@@ -460,7 +462,7 @@ async function viewHome(){
   app.querySelector('main').onclick = e => {
     const t = e.target.closest('[data-go]'); if(!t) return;
     ({make:scMake, roll:scRoll, sauce:scSauce, ship:scShip,
-      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, dash:scDash, check:scCheck, line:scLine})[t.dataset.go]();
+      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, inn:scIn, dash:scDash, check:scCheck, line:scLine})[t.dataset.go]();
   };
 }
 
@@ -475,6 +477,15 @@ function lineRow(it, opts={}){
     <input type="number" inputmode="decimal" step="any" min="0" data-item="${it.id}" placeholder="0">
     <div class="u">${esc(it.ub)}</div>
   </div>`;
+}
+/* 440 ชิ้น (กล่องละ 60) -> "7 กล่อง + 20 ชิ้น" */
+function boxTxt(qty, bpm, um, ub){
+  qty = num(qty); bpm = num(bpm);
+  if(!(bpm>1)) return `${fmt(qty, ub==='กก.'?1:0)} ${ub}`;
+  const M = Math.floor(qty/bpm), r = +(qty - M*bpm).toFixed(3);
+  if(M && r) return `${fmt(M)} ${um} + ${fmt(r)} ${ub}`;
+  if(M) return `${fmt(M)} ${um}`;
+  return `${fmt(r)} ${ub}`;
 }
 function collect(sel){
   return [...document.querySelectorAll(sel+' input[data-item]')]
@@ -514,30 +525,78 @@ async function upPhoto(file){
 /* ============================================================
    1 · ทำไส้
    ============================================================ */
-function scMake(){
+async function scMake(){
   const its = S.M.items.filter(x=>x.level==='filling');
   app.innerHTML = header('ทำไส้','โรงงาน', viewHome) + `<main>
-    <div class="note">กรอกเฉพาะไส้ที่ทำเสร็จวันนี้ · ช่องที่ไม่ได้ทำ เว้นว่างไว้</div>
+    <div class="note">กรอกเฉพาะไส้ที่ทำเสร็จวันนี้ · ใส่ทั้ง <b>จำนวนสูตร</b> และ <b>น้ำหนักที่ได้จริง</b>
+    · ระบบจะตัดวัตถุดิบตามจำนวนสูตร แล้วเทียบให้ว่าได้ครบตามสูตรไหม</div>
     ${dateField('d')}
-    <div class="card"><h3>ไส้ที่ทำได้ (กก.)</h3><div class="lst" id="ls">
-      ${its.map(x=>lineRow(x,{label:x.pname, showOh:true})).join('')}
+    <div class="card"><h3>ไส้ที่ทำได้</h3><div class="lst" id="ls">
+      ${its.map(x=>`<div class="li" data-item="${x.id}">
+        <div class="nm">${esc(x.pname)}<small id="rc_${x.id}">มีอยู่ ${fmt(oh(x.id),1)} กก.</small></div>
+        <input type="number" inputmode="decimal" step="any" min="0" class="bq" placeholder="0" style="width:64px">
+        <div class="u">สูตร</div>
+        <input type="number" inputmode="decimal" step="any" min="0" class="gq" placeholder="0" style="width:72px">
+        <div class="u">กก.</div>
+      </div>`).join('')}
     </div></div>
     <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
     <button class="btn" id="save">บันทึก</button>
+    <div id="res"></div>
   </main>`;
   wire(viewHome);
+
+  // ไส้ตัวไหนมีสูตรตัดวัตถุดิบบ้าง (ไม่โชว์ว่าควรได้กี่ กก. — โชว์หลังกดบันทึก)
+  let hasR = {};
+  try{
+    const { data } = await sb.from('batch_recipes').select('output_item_id,effective_to');
+    (data||[]).filter(r=>!r.effective_to).forEach(r=> hasR[r.output_item_id] = true);
+    its.forEach(x=>{ const el = $('#rc_'+x.id); if(el && !hasR[x.id])
+      el.textContent = `มีอยู่ ${fmt(oh(x.id),1)} กก. · ยังไม่มีสูตรตัดวัตถุดิบ`; });
+  }catch(e){}
+
   $('#save').onclick = async e=>{
-    const rows = collect('#ls');
+    const rows = [...document.querySelectorAll('#ls .li[data-item]')].map(li=>({
+      item: li.dataset.item,
+      batches: num(li.querySelector('.bq').value),
+      qty: num(li.querySelector('.gq').value)
+    })).filter(r=> r.qty>0 || r.batches>0);
     if(!rows.length) return toast('ยังไม่ได้กรอกจำนวน','bad');
+    const bad = rows.find(r=> r.qty>0 && r.batches<=0 && hasR[r.item]);
+    if(bad) return toast('ไส้ที่มีสูตร ต้องใส่จำนวนสูตรด้วย','bad');
     busy(e.target,true);
-    const { error } = await sb.rpc('fn_save_production',{
+    const { data, error } = await sb.rpc('fn_save_production',{
       p_kind:'make_filling', p_branch:S.loc.id, p_on:$('#d').value,
       p_note:$('#nt').value, p_outputs:rows
     });
     busy(e.target,false,'บันทึก');
     if(error) return toast(errMsg(error),'bad');
-    done(`บันทึกไส้ ${rows.length} รายการแล้ว`);
+    toast(`บันทึกไส้ ${rows.length} รายการแล้ว`,'ok');
+    await loadOnHand(S.loc.id);
+    showMakeResult(data);
   };
+}
+
+async function showMakeResult(batchId){
+  const box = $('#res'); if(!box) return;
+  box.innerHTML = '<div class="ldg sm">กำลังเทียบกับสูตร…</div>';
+  const { data, error } = await sb.rpc('fn_make_result', { p_batch: batchId });
+  if(error){ box.innerHTML = ''; return; }
+  const rows = data || [];
+  if(!rows.length){ box.innerHTML = '<div class="note">บันทึกแล้ว · ไส้ชุดนี้ยังไม่มีสูตรให้เทียบ</div>'; return; }
+  box.innerHTML = `<div class="card"><h3>ได้จริง เทียบกับสูตร</h3>
+    ${rows.map(r=>{
+      const d = num(r.diff_kg), pct = num(r.should_kg)? d/num(r.should_kg)*100 : 0;
+      const cls = Math.abs(pct) <= 3 ? '' : (d<0?'diffneg':'diffpos');
+      return `<div class="ck"><div class="mk">${Math.abs(pct)<=3?'✅':'⚠️'}</div>
+        <div class="bd"><b>${esc(r.label)} · ${fmt(r.batches,2)} สูตร</b>
+        <span>ควรได้ ${fmt(r.should_kg,2)} กก. · ได้จริง ${fmt(r.got_kg,2)} กก.
+        <span class="${cls}">${d>=0?'+':''}${fmt(d,2)} กก. (${d>=0?'+':''}${fmt(pct,1)}%)</span></span></div></div>`;
+    }).join('')}
+    <div class="xs mut" style="margin-top:8px">ต่างจากสูตรเกิน 3% = น่าดูว่าชั่งพลาด ของหก หรือสูตรเปลี่ยนไปแล้ว</div>
+  </div>
+  <button class="btn gh" id="rdone">เสร็จแล้ว · กลับหน้าหลัก</button>`;
+  $('#rdone').onclick = ()=>viewHome();
 }
 
 /* ============================================================
@@ -839,7 +898,7 @@ function transferView(fromFactory){
     ${dateField('d')}
     <div class="fld"><label class="fl">ส่งไปที่</label>
       <select id="to">${dests.map(b=>`<option value="${b.id}">${b.kind==='factory'?'🏭 ':''}${esc(b.name)}</option>`).join('')}</select></div>
-    ${fromFactory?'<div class="note">ระบบคิดให้จากความจุตู้ × สัดส่วนที่ขายได้จริง · แก้ตัวเลขทับได้ทุกช่อง</div>':''}
+    ${fromFactory?'<div class="note">ระบบคิดให้จากความจุตู้ × สัดส่วนที่ขายได้จริง · แก้ตัวเลขทับได้ทุกช่อง<br>ส่งไม่เต็มกล่อง ใส่เศษในช่องหลัง + ได้เลย</div>':''}
     <div class="fld"><label class="fl">เหตุผล${fromFactory?' (ไม่บังคับ)':''}</label><input id="rs" placeholder="${fromFactory?'ส่งประจำวัน':'เช่น ของหมดกะทันหัน'}"></div>
     <div id="plan"><div class="ldg sm">กำลังคิดให้…</div></div>
     <button class="btn" id="save">ออกใบส่งของ</button>
@@ -871,11 +930,14 @@ function transferView(fromFactory){
       const have = oh(r.id);
       html += `<div class="li" data-row="${r.id}" data-bpm="${r.bpm}" data-major="${byMajor?1:0}">
         <div class="nm">${esc(r.label)}
-          <small>ที่นี่มี ${fmt(have, r.ub==='กก.'?1:0)} ${esc(r.ub)}${byMajor?` (${fmt(Math.floor(have/r.bpm))} ${esc(r.um)})`:''}${
+          <small>ที่นี่มี ${esc(boxTxt(have, r.bpm, r.um, r.ub))}${
             r.share!=null?` · สาขาขายได้ ${r.share}%`:''}</small></div>
         <input type="number" inputmode="numeric" min="0" step="1" class="qs"
-          value="${byMajor ? (r.sendMajor??0) : (r.sendBase??0)}">
+          value="${byMajor ? (r.sendMajor??0) : (r.sendBase??0)}" style="width:${byMajor?58:72}px">
         <div class="u">${esc(byMajor?r.um:r.ub)}</div>
+        ${byMajor?`<span class="plus">+</span>
+        <input type="number" inputmode="numeric" min="0" step="1" class="qr" placeholder="0" style="width:58px">
+        <div class="u">${esc(r.ub)}</div>`:''}
       </div>`;
     }
     $('#plan').innerHTML = html;
@@ -886,10 +948,12 @@ function transferView(fromFactory){
     let short = [];
     document.querySelectorAll('#plan .li[data-row]').forEach(li=>{
       const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1';
-      const q = num(li.querySelector('.qs').value) * (byM?bpm:1);
+      const rq = li.querySelector('.qr');
+      const q = num(li.querySelector('.qs').value) * (byM?bpm:1) + (rq?num(rq.value):0);
       const have = oh(li.dataset.row);
       li.style.opacity = q>0?1:.55;
       li.querySelector('.qs').style.borderColor = q>have ? 'var(--bad)' : '';
+      if(rq) rq.style.borderColor = q>have ? 'var(--bad)' : '';
       if(q>have) short.push(li.querySelector('.nm').childNodes[0].textContent.trim());
     });
     const w = $('#warn');
@@ -910,7 +974,8 @@ function transferView(fromFactory){
     const lines = [];
     document.querySelectorAll('#plan .li[data-row]').forEach(li=>{
       const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1';
-      const want = num(li.querySelector('.qs').value) * (byM?bpm:1);
+      const rq = li.querySelector('.qr');
+      const want = num(li.querySelector('.qs').value) * (byM?bpm:1) + (rq?num(rq.value):0);
       if(want<=0) return;
       const have = oh(li.dataset.row);
       const sent = Math.min(want, have);
@@ -1017,12 +1082,15 @@ function recvDetail(t){
     <div class="note">นับของจริงที่ได้รับ · ถ้าตรงตามใบ ไม่ต้องแก้</div>
     <div class="card"><div class="lst">
     ${t.lines.map(l=>{
-      const byM = num(l.sent)>0 && l.major && S.M.items.find(i=>i.id===l.item) && item(l.item).bpm>1;
-      const bpm = item(l.item) ? item(l.item).bpm : 1;
-      return `<div class="li" data-line="${l.line}" data-bpm="${bpm}">
-        <div class="nm">${esc(l.label)}<small>ตามใบ ${fmt(l.sent)} ${esc(l.unit)}${bpm>1?` (${fmt(l.sent/bpm)} ${esc(l.major||'')})`:''}${
+      const bpm = item(l.item) ? num(item(l.item).bpm) : 1;
+      const byM = bpm>1, sent = num(l.sent);
+      const M = byM ? Math.floor(sent/bpm) : 0, rest = byM ? +(sent - M*bpm).toFixed(3) : sent;
+      return `<div class="li" data-line="${l.line}" data-bpm="${bpm}" data-major="${byM?1:0}">
+        <div class="nm">${esc(l.label)}<small>ตามใบ ${esc(boxTxt(sent, bpm, l.major||'', l.unit))}${
           num(l.short)>0?` · ค้างส่ง ${fmt(l.short)}`:''}</small></div>
-        <input type="number" inputmode="decimal" step="any" min="0" class="rq" value="${num(l.sent)}">
+        ${byM?`<input type="number" inputmode="numeric" step="1" min="0" class="rM" value="${M}" style="width:58px">
+        <div class="u">${esc(l.major||'')}</div><span class="plus">+</span>`:''}
+        <input type="number" inputmode="decimal" step="any" min="0" class="rq" value="${rest}" style="width:${byM?58:72}px">
         <div class="u">${esc(l.unit)}</div>
       </div>`;}).join('')}
     </div></div>
@@ -1030,8 +1098,11 @@ function recvDetail(t){
   </main>`;
   wire(scRecv);
   $('#save').onclick = async e=>{
-    const lines = [...document.querySelectorAll('.li[data-line]')]
-      .map(li=>({ line: li.dataset.line, received: num(li.querySelector('.rq').value) }));
+    const lines = [...document.querySelectorAll('.li[data-line]')].map(li=>{
+      const bpm = num(li.dataset.bpm), mEl = li.querySelector('.rM');
+      return { line: li.dataset.line,
+               received: (mEl?num(mEl.value)*bpm:0) + num(li.querySelector('.rq').value) };
+    });
     busy(e.target,true);
     const { error } = await sb.rpc('fn_receive_transfer',{ p_transfer:t.id, p_lines:lines });
     busy(e.target,false,'ยืนยันรับของ');
@@ -1043,6 +1114,95 @@ function recvDetail(t){
 /* ============================================================
    7 · นับสต๊อก
    ============================================================ */
+/* ============================================================
+   7b · ของเข้าโรงงาน — ซื้อเข้า หรือเจ้าของทำเองมาส่ง
+   ============================================================ */
+function scIn(){
+  const its = S.M.items.filter(x=> x.level==='raw' || x.level==='filling' || x.level==='packed');
+  const order = ['raw','filling','packed'];
+  const levTh = {raw:'วัตถุดิบ', filling:'ไส้ (กก.)', packed:'ของพร้อมขาย'};
+  let html = '';
+  for(const lv of order){
+    const g = its.filter(x=>x.level===lv);
+    if(!g.length) continue;
+    html += `<div class="card"><h3>${esc(levTh[lv])}</h3><div class="lst">`;
+    for(const x of g){
+      const byM = x.bpm>1;
+      html += `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}">
+        <div class="nm">${esc(x.label)}${byM?`<small>1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)}</small>`:''}</div>
+        ${byM?`<input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder="0" style="width:72px">
+               <div class="u">${esc(x.um)}</div>`:''}
+        <input type="number" inputmode="decimal" min="0" step="any" class="cm" placeholder="0" style="width:72px">
+        <div class="u">${esc(x.ub)}</div>
+      </div>`;
+    }
+    html += `</div></div>`;
+  }
+  app.innerHTML = header('ของเข้าโรงงาน', S.loc.name, viewHome) + `<main>
+    <div class="note">ของที่เข้ามาโดยไม่ได้มาจากใบส่งของ — ซื้อวัตถุดิบเข้า หรือเจ้าของผสมเองมาส่ง
+    · กรอกเฉพาะรายการที่เข้ามาจริงวันนี้ ที่เหลือเว้นว่างไว้</div>
+    ${dateField('d')}
+    <div class="fld"><label class="fl">ของมาจากไหน</label>
+      <select id="kd">
+        <option value="buy">ซื้อเข้า</option>
+        <option value="made">เจ้าของทำเองมาส่ง</option>
+        <option value="other">อื่น ๆ</option>
+      </select></div>
+    <div class="fld"><label class="fl">ซื้อจากใคร / ใครทำ</label><input id="src" placeholder="เช่น ร้านเจ๊หมวย · จิ้นทำเอง"></div>
+    ${html}
+    <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
+    <button class="btn" id="save">บันทึกของเข้า</button>
+    <div id="rcpt" style="margin-top:22px"></div>
+  </main>`;
+  wire(viewHome);
+  const drawR = ()=> loadReceipts($('#d').value);
+  $('#d').onchange = drawR;
+  drawR();
+
+  $('#save').onclick = async e=>{
+    const lines = [];
+    document.querySelectorAll('.li[data-item]').forEach(li=>{
+      const bpm = num(li.dataset.bpm);
+      const M = li.querySelector('.cM') ? num(li.querySelector('.cM').value) : 0;
+      const m = num(li.querySelector('.cm').value);
+      const q = M*bpm + m;
+      if(q>0) lines.push({ item: li.dataset.item, qty: q });
+    });
+    if(!lines.length) return toast('ยังไม่ได้ใส่จำนวนสักรายการ','bad');
+    busy(e.target,true);
+    const { error } = await sb.rpc('fn_save_receipt',{
+      p_branch:S.loc.id, p_on:$('#d').value, p_kind:$('#kd').value,
+      p_source:$('#src').value, p_note:$('#nt').value, p_lines:lines
+    });
+    busy(e.target,false,'บันทึกของเข้า');
+    if(error) return toast(errMsg(error),'bad');
+    document.querySelectorAll('.li[data-item] input').forEach(i=>i.value='');
+    $('#src').value=''; $('#nt').value='';
+    toast(`บันทึกของเข้า ${lines.length} รายการแล้ว`,'ok');
+    await loadOnHand(S.loc.id);
+    drawR();
+  };
+}
+
+async function loadReceipts(on){
+  const box = $('#rcpt'); if(!box) return;
+  box.innerHTML = '<div class="ldg sm">กำลังโหลด…</div>';
+  const { data, error } = await sb.rpc('fn_receipts', { p_branch:S.loc.id, p_on:on });
+  if(error){ box.innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  const rows = data || [];
+  if(!rows.length){ box.innerHTML = '<div class="xs mut">ยังไม่มีของเข้าในวันนี้</div>'; return; }
+  const kindTh = {buy:'🛒 ซื้อเข้า', made:'👨‍🍳 เจ้าของทำเอง', other:'📥 อื่น ๆ'};
+  const hhmm = t => t ? new Date(t).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Bangkok'}) : '';
+  box.innerHTML = `<div class="card"><h3>ของเข้าวันนี้ (${rows.length})</h3>
+    ${rows.map(r=>`<div class="ck" style="align-items:flex-start">
+      <div class="mk">✅</div>
+      <div class="bd"><b>${kindTh[r.kind]||''}${r.source?' · '+esc(r.source):''}</b>
+        <span style="white-space:pre-line">${esc(r.summary||'')}</span>
+        <span class="xs mut">${esc(r.by_name||'')} · ${hhmm(r.at_time)}${r.note?' · '+esc(r.note):''}</span></div>
+    </div>`).join('')}
+  </div>`;
+}
+
 function scCount(){
   const fac = S.loc.kind==='factory';
   const its = S.M.items.filter(x=> fac ? true : (!x.fac && x.level==='packed'));

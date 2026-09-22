@@ -1621,7 +1621,7 @@ function formRole(r){
 function formStaff(r){
   const isNew = !r;
   const canOwner = S.me.role === 'owner';
-  const v = r || { nickname:'', full_name:'', burmese_name:'', phone:'', job_type:'', role:'branch' };
+  const v = r || { nickname:'', full_name:'', burmese_name:'', phone:'', contact_email:'', job_type:'', role:'branch' };
   const s = sheet(`
     <h3 style="margin:0 0 12px">${isNew?'เพิ่มพนักงานใหม่':'แก้ข้อมูล '+esc(v.nickname)}</h3>
     <div class="fld"><label class="fl">ชื่อเล่น (ที่ใช้เลือกตอนเข้าระบบ) *</label>
@@ -1632,6 +1632,8 @@ function formStaff(r){
       <input id="f_bur" value="${esc(v.burmese_name)}"></div>
     <div class="fld"><label class="fl">เบอร์โทร</label>
       <input id="f_ph" inputmode="tel" value="${esc(v.phone)}"></div>
+    <div class="fld"><label class="fl">อีเมลส่วนตัว (ไว้ติดต่อ ไม่ได้ใช้เข้าระบบ)</label>
+      <input id="f_ce" inputmode="email" value="${esc(v.contact_email||'')}"></div>
     <div class="fld"><label class="fl">ตำแหน่ง</label>
       <input id="f_job" value="${esc(v.job_type)}" placeholder="เช่น หน้าร้าน · โรงงาน"></div>
     ${isNew?`<div class="fld"><label class="fl">สิทธิ์ในระบบ</label>
@@ -1650,6 +1652,7 @@ function formStaff(r){
       burmese_name: $('#f_bur').value.trim(),
       phone:        $('#f_ph').value.trim(),
       job_type:     $('#f_job').value.trim(),
+      contact_email:$('#f_ce').value.trim(),
     };
     if(!p.nickname) return toast('ต้องใส่ชื่อเล่น','bad');
     busy(b, true);

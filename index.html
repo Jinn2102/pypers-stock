@@ -380,7 +380,7 @@ function pickLocation(){
   const r = S.me.role;
   const cand = r==='factory' ? S.M.branches.filter(b=>b.kind==='factory')
              : r==='branch'  ? S.M.branches.filter(b=>b.kind!=='factory')
-             : S.M.branches;
+             : S.M.branches;   // owner + manager = ไปได้ทุกที่
   if(!cand.length){ app.innerHTML=''; return toast('ไม่มีสาขาที่เปิดอยู่','bad'); }
   const saved = localStorage.getItem('loc');
   const hit = cand.find(b=>b.id===saved);
@@ -402,7 +402,7 @@ function pickLocation(){
   };
   $('#out').onclick = signOut;
 }
-function roleTh(r){ return r==='owner'?'เจ้าของ':r==='factory'?'โรงงาน':'สาขา'; }
+function roleTh(r){ return r==='owner'?'เจ้าของ':r==='manager'?'หัวหน้า':r==='factory'?'โรงงาน':'สาขา'; }
 async function setLoc(b){
   S.loc = b; localStorage.setItem('loc', b.id);
   try{ await loadOnHand(b.id); }catch(e){ toast(errMsg(e),'bad'); }
@@ -425,7 +425,8 @@ async function viewHome(){
   const list = SCREENS.filter(s=>s.at===at);
   let nInbound = 0;
   try{ const { data } = await sb.rpc('fn_inbound',{p_branch:S.loc.id}); nInbound = (data||[]).length; }catch(e){}
-  const seeDash = S.me.role === 'owner' || S.me.role === 'factory';
+  const BOSS = r => r==='owner' || r==='manager' || r==='factory';
+  const seeDash = BOSS(S.me.role);
   let nTodo = 0;
   if(seeDash){
     try{
@@ -433,7 +434,8 @@ async function viewHome(){
       nTodo = (data||[]).filter(r=>!r.done).length;
     }catch(e){}
   }
-  const canSwitch = S.me.role==='owner' || S.M.branches.filter(b=> S.me.role==='factory'?b.kind==='factory':b.kind!=='factory').length>1;
+  const canSwitch = S.me.role==='owner' || S.me.role==='manager'
+    || S.M.branches.filter(b=> S.me.role==='factory'?b.kind==='factory':b.kind!=='factory').length>1;
   app.innerHTML = header("Pyper's สต๊อก") + `<main>
     <div class="card" style="padding:12px 14px">
       <div class="row sp">
@@ -841,6 +843,7 @@ function transferView(fromFactory){
     <div class="fld"><label class="fl">เหตุผล${fromFactory?' (ไม่บังคับ)':''}</label><input id="rs" placeholder="${fromFactory?'ส่งประจำวัน':'เช่น ของหมดกะทันหัน'}"></div>
     <div id="plan"><div class="ldg sm">กำลังคิดให้…</div></div>
     <button class="btn" id="save">ออกใบส่งของ</button>
+    <div id="outb" style="margin-top:22px"></div>
   </main>`;
   wire(viewHome);
 
@@ -898,9 +901,10 @@ function transferView(fromFactory){
       $('#plan').appendChild(d);
     }
   };
+  const drawOut = ()=> loadOutbound($('#d').value);
   $('#to').onchange = drawPlan;
-  $('#d').onchange = drawPlan;
-  drawPlan();
+  $('#d').onchange = ()=>{ drawPlan(); drawOut(); };
+  drawPlan(); drawOut();
 
   $('#save').onclick = async e=>{
     const lines = [];
@@ -922,7 +926,70 @@ function transferView(fromFactory){
     busy(e.target,false,'ออกใบส่งของ');
     if(error) return toast(errMsg(error),'bad');
     const doc = (data && data[0] && data[0].doc_no) || '';
-    done(`ออกใบส่งของ ${doc} แล้ว · ${lines.length} รายการ`);
+    toast(`ออกใบส่งของ ${doc} แล้ว · ${lines.length} รายการ`,'ok');
+    await loadOnHand(S.loc.id);
+    drawPlan(); drawOut();
+  };
+}
+
+/* ---------- ใบที่ออกไปวันนี้ · กดยกเลิกได้ถ้าปลายทางยังไม่รับ ---------- */
+async function loadOutbound(on){
+  const box = $('#outb'); if(!box) return;
+  box.innerHTML = '<div class="ldg sm">กำลังโหลดใบที่ออกไป…</div>';
+  const { data, error } = await sb.rpc('fn_outbound', { p_branch:S.loc.id, p_on:on });
+  if(error){ box.innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  const rows = data || [];
+  if(!rows.length){ box.innerHTML = '<div class="xs mut">ยังไม่มีใบส่งของออกจากที่นี่ในวันนี้</div>'; return; }
+  const hhmm = t => t ? new Date(t).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Bangkok'}) : '';
+  box.innerHTML = `<div class="card"><h3>ใบที่ออกไปวันนี้ (${rows.length})</h3>
+    ${rows.map(r=>`<div class="ck ${r.voided_at?'no':''}" style="align-items:flex-start">
+      <div class="mk">${r.voided_at?'🚫':(r.received_at?'✅':'📦')}</div>
+      <div class="bd">
+        <b style="${r.voided_at?'text-decoration:line-through;opacity:.6':''}">${esc(r.doc_no)} → ${esc(r.to_name)}</b>
+        <span style="white-space:pre-line">${esc(r.summary||'')}</span>
+        <span class="xs mut">${r.voided_at
+          ? `ยกเลิกแล้ว ${hhmm(r.voided_at)} · ${esc(r.void_reason||'')}`
+          : r.received_at ? `ปลายทางรับแล้ว ${hhmm(r.received_at)} · ยกเลิกไม่ได้`
+          : `ออกโดย ${esc(r.issued_by||'')} · ยังไม่มีใครรับ`}</span>
+      </div>
+      ${r.can_void?`<button class="btn gh sm2" style="width:auto;padding:8px 12px" data-void="${r.id}" data-doc="${esc(r.doc_no)}">ยกเลิก</button>`:''}
+    </div>`).join('')}
+    <div class="xs mut" style="margin-top:8px">ยกเลิกแล้วของกลับเข้าสต๊อกที่นี่ทันที · ใบเก่ายังเก็บไว้ ไม่ได้ลบทิ้ง</div>
+  </div>`;
+  box.onclick = e => {
+    const b = e.target.closest('[data-void]'); if(!b) return;
+    askVoid(b.dataset.void, b.dataset.doc, on);
+  };
+}
+
+function askVoid(id, doc, on){
+  const wrap = document.createElement('div');
+  wrap.className = 'sheet';
+  wrap.innerHTML = `<div class="sheetbox">
+    <h3 style="margin:0 0 4px">ยกเลิกใบ ${esc(doc)}</h3>
+    <div class="note">ของจะกลับเข้าสต๊อกที่นี่ทันที · ใบนี้ยังเก็บไว้ในระบบ มีชื่อคุณกำกับว่าเป็นคนยกเลิก</div>
+    <div class="fld"><label class="fl">ยกเลิกเพราะอะไร</label>
+      <input id="vr" placeholder="เช่น ใส่จำนวนผิด · ส่งผิดสาขา"></div>
+    <button class="btn" id="vok">ยืนยันยกเลิก</button>
+    <button class="btn gh sm2" id="vno">ไม่ยกเลิก</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = ()=>wrap.remove();
+  wrap.onclick = e => { if(e.target===wrap) close(); };
+  $('#vno').onclick = close;
+  setTimeout(()=>{ const i=$('#vr'); if(i) i.focus(); }, 60);
+  $('#vok').onclick = async e => {
+    const why = $('#vr').value.trim();
+    if(!why) return toast('ต้องใส่เหตุผลก่อน','bad');
+    busy(e.target,true);
+    const { data, error } = await sb.rpc('fn_void_transfer', { p_transfer:id, p_reason:why });
+    busy(e.target,false,'ยืนยันยกเลิก');
+    if(error) return toast(errMsg(error),'bad');
+    close();
+    toast(data || 'ยกเลิกแล้ว','ok');
+    await loadOnHand(S.loc.id);
+    loadOutbound(on);
+    if($('#to')) $('#to').dispatchEvent(new Event('change'));
   };
 }
 
@@ -1204,7 +1271,7 @@ async function scLine(){
     </div>
     ${no.length?`<div class="card"><h3>⬜ ยังไม่ได้ผูก (${no.length})</h3>${no.map(person).join('')}</div>`:''}
     ${yes.length?`<div class="card"><h3>✅ ผูกแล้ว (${yes.length})</h3>${yes.map(person).join('')}</div>`:''}
-    <div class="xs mut" style="margin-bottom:20px">ถ้าน้องลืมรหัส ให้น้องพิมพ์ <b>ขอรหัสใหม่</b> ในแชท LINE ของร้านได้เอง ไม่ต้องมาถาม</div>`;
+    <div class="xs mut" style="margin-bottom:20px">ทำครั้งเดียวจบ — ระบบจะรู้จัก LINE ของน้อง ส่งรหัสให้ และเปิดแจ้งเตือนให้พร้อมกัน · ถ้าลืมรหัส น้องพิมพ์ <b>ขอรหัสใหม่</b> ในแชทได้เอง</div>`;
 
   $('#body').onclick = async e => {
     const b = e.target.closest('[data-emp]'); if(!b) return;
@@ -1218,7 +1285,7 @@ async function scLine(){
 }
 
 function showToken(r){
-  const msg = `${r.nickname} — เข้าระบบสต๊อก Pyper's\n\n1) แอดไลน์ร้าน: https://line.me/R/ti/p/${LINE_OA}\n2) กดลิงก์นี้ในมือถือตัวเอง:\n${r.deep_link}\n\nหรือพิมพ์ในแชทว่า:  ผูกบัญชี ${r.token}\n\nแล้วระบบจะส่งรหัส 6 หลักกับลิงก์เข้าระบบให้ทาง LINE`;
+  const msg = `${r.nickname} — เข้าระบบสต๊อก Pyper's\n\n1) แอดไลน์ร้าน: https://line.me/R/ti/p/${LINE_OA}\n2) กดลิงก์นี้ในมือถือตัวเอง:\n${r.deep_link}\n\nหรือพิมพ์ในแชทว่า:  ผูกบัญชี ${r.token}\n\nแล้วระบบจะส่งรหัส 6 หลักกับลิงก์เข้าระบบให้ทาง LINE ส่วนตัว\nและเปิดแจ้งเตือนให้อัตโนมัติ ไม่ต้องทำอะไรเพิ่ม`;
   const wrap = document.createElement('div');
   wrap.className = 'sheet';
   wrap.innerHTML = `<div class="sheetbox">

@@ -450,6 +450,8 @@ async function viewHome(){
       <div class="ic">${s.ic}</div>
       <div class="tx"><b>${esc(s.nm)}${s.id==='recv'&&nInbound?` <span class="badge">${nInbound}</span>`:''}</b><span>${esc(s.sb)}</span></div>
       <div class="ar">›</div></button>`).join('')}
+    ${seeDash?`<button class="tile" data-go="perf">
+      <div class="ic">📈</div><div class="tx"><b>ผลงานรายวัน</b><span>ม้วนได้กี่ชิ้น · ทำไส้กี่ กก. · สาขาขายไปเท่าไหร่</span></div><div class="ar">›</div></button>`:''}
     ${seeDash?`<button class="tile" data-go="check">
       <div class="ic">🗒️</div><div class="tx"><b>เช็กลิสต์วันนี้${nTodo?` <span class="badge">${nTodo} ยังไม่ส่ง</span>`:''}</b><span>ใครส่งรายงานแล้ว ใครยังไม่ส่ง</span></div><div class="ar">›</div></button>`:''}
     ${seeDash?`<button class="tile" data-go="line">
@@ -465,7 +467,7 @@ async function viewHome(){
   app.querySelector('main').onclick = e => {
     const t = e.target.closest('[data-go]'); if(!t) return;
     ({make:scMake, roll:scRoll, sauce:scSauce, ship:scShip,
-      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, inn:scIn, dash:scDash, check:scCheck, line:scLine, staff:scStaff})[t.dataset.go]();
+      count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, inn:scIn, dash:scDash, check:scCheck, line:scLine, staff:scStaff, perf:scPerf})[t.dataset.go]();
   };
 }
 
@@ -1786,6 +1788,129 @@ function showNewPin(res){
     try{ await navigator.clipboard.writeText(msg); toast('เครื่องนี้แชร์ตรงไม่ได้ · คัดลอกให้แล้ว','ok'); }
     catch(e){ toast('คัดลอกไม่ได้','bad'); }
   };
+}
+
+
+/* ============================================================
+   13 · ผลงานรายวัน — ทำอะไรไปเท่าไหร่ (ไม่ใช่เงิน)
+   ============================================================ */
+async function scPerf(){
+  app.innerHTML = header('ผลงานรายวัน','', viewHome) + `<main>
+    ${dateField('d')}
+    <div id="pf"><div class="ldg">กำลังรวมตัวเลข…</div></div>
+  </main>`;
+  wire(viewHome);
+  $('#d').addEventListener('change', ()=>drawPerf($('#d').value));
+  await drawPerf($('#d').value);
+}
+
+async function drawPerf(on){
+  const box = $('#pf'); if(!box) return;
+  box.innerHTML = '<div class="ldg">กำลังรวมตัวเลข…</div>';
+  const pv = new Date(on+'T00:00:00'); pv.setDate(pv.getDate()-1);
+  const [a, b] = await Promise.all([
+    sb.rpc('fn_daily_perf', { p_on: on }),
+    sb.rpc('fn_daily_perf', { p_on: pv.toLocaleDateString('sv-SE') }),
+  ]);
+  if(a.error){ box.innerHTML = `<div class="note err">${esc(errMsg(a.error))}</div>`; return; }
+  const R = a.data || [], Y = b.data || [];
+  const of  = (rows, s) => rows.filter(r => r.section === s);
+  const tot = (rows, s, unit) => of(rows, s)
+    .filter(r => r.qty !== null && (!unit || r.unit === unit))
+    .reduce((t, r) => t + num(r.qty), 0);
+  const grp = rows => { const m = new Map();
+    rows.forEach(r => { if(!m.has(r.loc)) m.set(r.loc, []); m.get(r.loc).push(r); }); return m; };
+  const card = (title, body, empty) =>
+    `<div class="card"><h3>${title}</h3>${body || `<div class="xs mut">${empty}</div>`}</div>`;
+  const row = (nm, sub, qty, unit, cls='') => `<div class="li">
+      <div class="nm">${nm}${sub ? `<small>${sub}</small>` : ''}</div>
+      <div class="big ${cls}" style="font-size:20px">${qty}</div>
+      <div class="u">${esc(unit||'')}</div></div>`;
+  const yday = (t, y, d=0) => `<span>เมื่อวาน ${y ? fmt(y,d) : '—'}</span>`;
+
+  // ---- ตัวเลขใหญ่ด้านบน ----
+  const rolled = tot(R,'roll'), made = tot(R,'make'), sold = tot(R,'sold','ชิ้น');
+  const hero = `<div class="hero">
+    <div class="t"><b>${rolled ? fmt(rolled) : '—'}</b><span>ม้วนได้ (ชิ้น)</span>${yday(rolled, tot(Y,'roll'))}</div>
+    <div class="t"><b>${made ? fmt(made,1) : '—'}</b><span>ทำไส้ (กก.)</span>${yday(made, tot(Y,'make'), 1)}</div>
+    <div class="t"><b>${sold ? fmt(sold) : '—'}</b><span>สาขาขายไป (ชิ้น)</span>${yday(sold, tot(Y,'sold','ชิ้น'))}</div>
+  </div>`;
+
+  // ---- ม้วน รายไส้ + เทียบสเปกกรัม/ชิ้น ----
+  const rollRows = of(R,'roll').map(r => {
+    const m = /([\d.]+) ก\.\/ชิ้น \(สเปก ([\d.]+)\)/.exec(r.extra || '');
+    let tag = '';
+    if(m){
+      const g = +m[1], s = +m[2], p = (g - s) / s * 100;
+      tag = Math.abs(p) <= 5
+        ? ` · <span class="diffz">ตรงสเปก</span>`
+        : ` · <span class="${p < 0 ? 'diffneg' : 'diffpos'}">ไส้${p < 0 ? 'น้อย' : 'มาก'}กว่าสเปก ${fmt(Math.abs(p))}%</span>`;
+    }
+    return row(esc(r.item), esc(r.extra || '') + tag, fmt(r.qty), r.unit);
+  }).join('');
+
+  // ---- ใครม้วนเท่าไหร่ ----
+  const rs = of(R,'roller').sort((x, y) => num(y.qty) - num(x.qty));
+  const top = rs.length ? num(rs[0].qty) : 0;
+  const rollerRows = rs.map(r => `<div style="margin-bottom:10px">
+      <div class="seg"><span class="sm">${esc(r.who)}</span><span class="p">${fmt(r.qty)} ชิ้น</span></div>
+      <div class="bar" style="margin:4px 0 0"><i style="width:${top ? Math.round(num(r.qty) / top * 100) : 0}%"></i></div>
+    </div>`).join('');
+
+  // ---- ทำไส้ · ผสม/แบ่งบรรจุ ----
+  const makeRows  = of(R,'make').map(r => row(esc(r.item), esc(r.extra || ''), fmt(r.qty, 2), r.unit)).join('');
+  const sauceRows = of(R,'sauce').map(r => row(esc(r.item), '', fmt(r.qty), r.unit)).join('');
+
+  // ---- สาขา: ขายไป (คิดจากสต๊อก) ----
+  const soldBy = grp(of(R,'sold'));
+  let soldHtml = '';
+  soldBy.forEach((rows, loc) => {
+    const known = rows.filter(r => r.qty !== null);
+    const pcs = known.filter(r => r.unit === 'ชิ้น').reduce((t, r) => t + num(r.qty), 0);
+    const range = (rows.find(r => r.extra && r.extra.startsWith('รวม')) || {}).extra || '';
+    soldHtml += `<div style="margin:6px 0 2px" class="seg">
+        <b>${esc(loc)}</b><span class="p">${known.length ? fmt(pcs) + ' ชิ้น' : ''}</span></div>`;
+    if(!known.length){
+      soldHtml += `<div class="xs mut" style="margin-bottom:10px">นับครั้งแรก = ตั้งต้น · นับพรุ่งนี้แล้วจะเริ่มเห็นยอดขาย</div>`;
+      return;
+    }
+    if(range) soldHtml += `<div class="xs mut">${esc(range)} (เมื่อวานไม่ได้นับ)</div>`;
+    soldHtml += `<div class="lst" style="margin-bottom:10px">` + known.map(r => {
+      const q = num(r.qty);
+      return q < 0
+        ? row(esc(r.item), 'นับได้เกินที่ควรมี — ของเข้าที่ไม่ได้กรอก หรือนับพลาด', '+' + fmt(-q), r.unit, 'diffpos')
+        : row(esc(r.item), '', fmt(q), r.unit);
+    }).join('') + `</div>`;
+  });
+  const noCount = of(R,'nocount').map(r => r.loc);
+  if(noCount.length) soldHtml += `<div class="note" style="margin-top:8px">ยังไม่นับวันนี้ → ยังไม่รู้ยอดขาย<br><b>${noCount.map(esc).join(' · ')}</b></div>`;
+
+  // ---- ส่งออกจากโรงงาน ----
+  let shipHtml = '';
+  grp(of(R,'ship')).forEach((rows, loc) => {
+    shipHtml += `<div style="margin:6px 0 2px"><b>${esc(loc)}</b></div><div class="lst" style="margin-bottom:10px">` +
+      rows.map(r => row(esc(r.item), esc(r.extra || ''), fmt(r.qty), r.unit)).join('') + `</div>`;
+  });
+
+  // ---- ของเสีย ----
+  let wasteHtml = '';
+  grp(of(R,'waste')).forEach((rows, loc) => {
+    wasteHtml += `<div style="margin:6px 0 2px"><b>${esc(loc)}</b></div><div class="lst" style="margin-bottom:10px">` +
+      rows.map(r => row(esc(r.item), '', fmt(r.qty, 2), r.unit, 'diffneg')).join('') + `</div>`;
+  });
+
+  box.innerHTML = hero
+    + card('🌯 ม้วน', rollRows ? `<div class="lst">${rollRows}</div>` : '', 'วันนี้ยังไม่มีบันทึกม้วน')
+    + (rollerRows ? card('👤 ใครม้วนเท่าไหร่', rollerRows, '') : '')
+    + card('🥣 ทำไส้', makeRows ? `<div class="lst">${makeRows}</div>` : '', 'วันนี้ยังไม่มีบันทึกทำไส้')
+    + (sauceRows ? card('🥫 ผสม / แบ่งบรรจุ', `<div class="lst">${sauceRows}</div>`, '') : '')
+    + card('🏬 สาขาขายไป <span class="xs mut" style="font-weight:400">(คิดจากสต๊อก)</span>', soldHtml, 'ยังไม่มีสาขาไหนนับ')
+    + card('🚚 ส่งออกจากโรงงาน', shipHtml, 'วันนี้ยังไม่มีใบส่งของ')
+    + (wasteHtml ? card('🗑️ ของเสีย', wasteHtml, '') : '')
+    + `<div class="xs mut" style="margin-bottom:24px">
+        <b>ขายไป</b> = ควรเหลือ − นับได้จริง · ตอนนี้<b>รวมของที่หายไว้ด้วย</b> เพราะยอด POS ยังไม่เข้าระบบ
+        พอยอด POS เข้า จะแยกได้ว่าเท่าไหร่ขายจริง เท่าไหร่หาย<br>
+        นับแค่รอบที่ยังไม่ถูกยกเลิก · เปลี่ยนวันที่ด้านบนเพื่อดูวันก่อน</div>`;
 }
 
 async function scDash(){

@@ -1861,26 +1861,38 @@ async function drawPerf(on){
   const makeRows  = of(R,'make').map(r => row(esc(r.item), esc(r.extra || ''), fmt(r.qty, 2), r.unit)).join('');
   const sauceRows = of(R,'sauce').map(r => row(esc(r.item), '', fmt(r.qty), r.unit)).join('');
 
-  // ---- สาขา: ขายไป (คิดจากสต๊อก) ----
+  // ---- สาขา: ขายไป (คิดจากสต๊อก) แยกรายรอบนับ ----
+  //   1 ใบนับ = 1 รอบ · บอกเวลา + คนนับ ไม่เดาว่ากะไหน
   const soldBy = grp(of(R,'sold'));
+  const pcsOf = rows => rows.filter(r => r.qty !== null && r.unit === 'ชิ้น').reduce((t, r) => t + num(r.qty), 0);
   let soldHtml = '';
   soldBy.forEach((rows, loc) => {
-    const known = rows.filter(r => r.qty !== null);
-    const pcs = known.filter(r => r.unit === 'ชิ้น').reduce((t, r) => t + num(r.qty), 0);
-    const range = (rows.find(r => r.extra && r.extra.startsWith('รวม')) || {}).extra || '';
+    const rounds = new Map();
+    rows.forEach(r => { if(!rounds.has(r.sort2)) rounds.set(r.sort2, []); rounds.get(r.sort2).push(r); });
+    const keys = [...rounds.keys()].sort();
+    const anyKnown = rows.some(r => r.qty !== null);
     soldHtml += `<div style="margin:6px 0 2px" class="seg">
-        <b>${esc(loc)}</b><span class="p">${known.length ? fmt(pcs) + ' ชิ้น' : ''}</span></div>`;
-    if(!known.length){
-      soldHtml += `<div class="xs mut" style="margin-bottom:10px">นับครั้งแรก = ตั้งต้น · นับพรุ่งนี้แล้วจะเริ่มเห็นยอดขาย</div>`;
-      return;
-    }
-    if(range) soldHtml += `<div class="xs mut">${esc(range)} (เมื่อวานไม่ได้นับ)</div>`;
-    soldHtml += `<div class="lst" style="margin-bottom:10px">` + known.map(r => {
-      const q = num(r.qty);
-      return q < 0
-        ? row(esc(r.item), 'นับได้เกินที่ควรมี — ของเข้าที่ไม่ได้กรอก หรือนับพลาด', '+' + fmt(-q), r.unit, 'diffpos')
-        : row(esc(r.item), '', fmt(q), r.unit);
-    }).join('') + `</div>`;
+        <b>${esc(loc)}</b><span class="p">${anyKnown ? fmt(pcsOf(rows)) + ' ชิ้น' : ''}${keys.length > 1 ? ` · นับ ${keys.length} รอบ` : ''}</span></div>`;
+    keys.forEach((k, i) => {
+      const rr = rounds.get(k);
+      const [tm, note] = String(rr[0].extra || '|').split('|');
+      const known = rr.filter(r => r.qty !== null);
+      const base  = rr.length - known.length;
+      soldHtml += `<div class="seg" style="margin-top:8px">
+          <span class="sm">${keys.length > 1 ? 'รอบ ' + (i + 1) + ' · ' : 'นับ '}${esc(tm)}${rr[0].who ? ' · ' + esc(rr[0].who) : ''}</span>
+          <span class="p">${known.length ? fmt(pcsOf(rr)) + ' ชิ้น' : ''}</span></div>`;
+      if(!known.length){
+        soldHtml += `<div class="xs mut" style="margin-bottom:10px">นับครั้งแรก = ตั้งต้น · นับรอบถัดไปแล้วจะเริ่มเห็นยอดขาย</div>`;
+        return;
+      }
+      if(note) soldHtml += `<div class="xs mut">${esc(note)}${note.startsWith('รวม') ? ' (ไม่ได้นับระหว่างนั้น)' : ''}</div>`;
+      soldHtml += `<div class="lst" style="margin-bottom:10px">` + known.map(r => {
+        const q = num(r.qty);
+        return q < 0
+          ? row(esc(r.item), 'นับได้เกินที่ควรมี — ของเข้าที่ไม่ได้กรอก หรือนับพลาด', '+' + fmt(-q), r.unit, 'diffpos')
+          : row(esc(r.item), '', fmt(q), r.unit);
+      }).join('') + (base ? `<div class="xs mut" style="padding:6px 0">+ ${base} รายการนับครั้งแรก (ตั้งต้น)</div>` : '') + `</div>`;
+    });
   });
   const noCount = of(R,'nocount').map(r => r.loc);
   if(noCount.length) soldHtml += `<div class="note" style="margin-top:8px">ยังไม่นับวันนี้ → ยังไม่รู้ยอดขาย<br><b>${noCount.map(esc).join(' · ')}</b></div>`;

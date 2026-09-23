@@ -549,6 +549,8 @@ async function scMake(){
   </main>`;
   wire(viewHome);
 
+  mountProd('make_filling');
+
   // ไส้ตัวไหนมีสูตรตัดวัตถุดิบบ้าง (ไม่โชว์ว่าควรได้กี่ กก. — โชว์หลังกดบันทึก)
   let hasR = {};
   try{
@@ -577,6 +579,7 @@ async function scMake(){
     toast(`บันทึกไส้ ${rows.length} รายการแล้ว`,'ok');
     await loadOnHand(S.loc.id);
     showMakeResult(data);
+    loadProd('make_filling', $('#d').value);
   };
 }
 
@@ -712,6 +715,7 @@ function scRoll(){
   wire(viewHome);
   $('#fv').onchange = ()=>{ rollers=[{by:'',qty:''}]; render(); };
   render();
+  mountProd('roll');
 
   $('#save').onclick = async e=>{
     const w = item($('#fv').value), f = fill(w.pcode);
@@ -851,6 +855,7 @@ function scSauce(){
   $('#sv').onchange = load;
   $('#d').onchange  = load;
   load();
+  mountProd('sauce_fill');
 
   $('#save').onclick = async e=>{
     const sid = $('#sv').value;
@@ -1058,6 +1063,81 @@ function askVoid(id, doc, on){
     await loadOnHand(S.loc.id);
     loadOutbound(on);
     if($('#to')) $('#to').dispatchEvent(new Event('change'));
+  };
+}
+
+
+/* ---------- บันทึกการผลิตวันนี้ · กดยกเลิกได้ ---------- */
+const PKIND_TH = { make_filling:'ทำไส้', roll:'ม้วน', sauce_fill:'ผสม/แบ่งบรรจุ', pack:'แพ็ก' };
+
+async function mountProd(kind){
+  const main = app.querySelector('main'); if(!main) return;
+  let box = $('#prodb');
+  if(!box){ box = document.createElement('div'); box.id = 'prodb'; main.appendChild(box); }
+  const d = $('#d');
+  if(d && !d.dataset.pw){ d.dataset.pw = '1'; d.addEventListener('change', ()=>loadProd(kind, d.value)); }
+  await loadProd(kind, d ? d.value : today());
+}
+
+async function loadProd(kind, on){
+  const box = $('#prodb'); if(!box) return;
+  box.innerHTML = '<div class="ldg sm">กำลังโหลดบันทึกวันนี้…</div>';
+  const { data, error } = await sb.rpc('fn_production_today', { p_branch:S.loc.id, p_kind:kind, p_on:on });
+  if(error){ box.innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  const rows = data || [];
+  if(!rows.length){
+    box.innerHTML = `<div class="xs mut" style="margin-bottom:20px">ยังไม่มีบันทึก${PKIND_TH[kind]||''}ของวันนี้ · กรอกกี่รอบก็ได้ ระบบบวกให้เอง</div>`;
+    return;
+  }
+  const hhmm = t => t ? new Date(t).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Bangkok'}) : '';
+  const live = rows.filter(r=>!r.voided_at).length;
+  box.innerHTML = `<div class="card"><h3>บันทึก${PKIND_TH[kind]||''}วันนี้ (${live} รอบ)</h3>
+    ${rows.map((r,i)=>`<div class="ck ${r.voided_at?'no':''}" style="align-items:flex-start">
+      <div class="mk">${r.voided_at?'🚫':'✅'}</div>
+      <div class="bd">
+        <b style="${r.voided_at?'text-decoration:line-through;opacity:.6':''}">รอบ ${rows.length-i} · ${hhmm(r.at_time)}${r.by_name?' · '+esc(r.by_name):''}</b>
+        <span style="white-space:pre-line">${esc(r.summary||'')}${r.in_txt?'\n'+esc(r.in_txt):''}</span>
+        <span class="xs mut">${r.voided_at
+          ? 'ยกเลิกแล้ว ' + hhmm(r.voided_at) + ' · ' + esc(r.void_reason||'')
+          : esc(r.note||'')}</span>
+      </div>
+      ${r.can_void?`<button class="btn gh sm2" style="width:auto;padding:8px 12px" data-vp="${r.id}" data-lb="รอบ ${rows.length-i}">ยกเลิก</button>`:''}
+    </div>`).join('')}
+    <div class="xs mut" style="margin-top:8px">ยกเลิกแล้วสต๊อกกลับไปเหมือนไม่เคยกรอกรอบนั้น · บันทึกเก่ายังเก็บไว้ ไม่ได้ลบทิ้ง</div>
+  </div>`;
+  box.onclick = e => {
+    const b = e.target.closest('[data-vp]'); if(!b) return;
+    askVoidProd(b.dataset.vp, b.dataset.lb, kind, on);
+  };
+}
+
+function askVoidProd(id, label, kind, on){
+  const wrap = document.createElement('div');
+  wrap.className = 'sheet';
+  wrap.innerHTML = `<div class="sheetbox">
+    <h3 style="margin:0 0 4px">ยกเลิก${PKIND_TH[kind]||''} ${esc(label)}</h3>
+    <div class="note">สต๊อกจะกลับไปเหมือนไม่เคยกรอกรอบนี้ · บันทึกยังเก็บไว้ในระบบ มีชื่อคุณกำกับว่าเป็นคนยกเลิก</div>
+    <div class="fld"><label class="fl">ยกเลิกเพราะอะไร</label>
+      <input id="pvr" placeholder="เช่น กรอกตัวเลขผิด · กรอกซ้ำ 2 รอบ"></div>
+    <button class="btn" id="pvok">ยืนยันยกเลิก</button>
+    <button class="btn gh sm2" id="pvno">ไม่ยกเลิก</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = ()=>wrap.remove();
+  wrap.onclick = e => { if(e.target===wrap) close(); };
+  $('#pvno').onclick = close;
+  setTimeout(()=>{ const i=$('#pvr'); if(i) i.focus(); }, 60);
+  $('#pvok').onclick = async e => {
+    const why = $('#pvr').value.trim();
+    if(!why) return toast('ต้องใส่เหตุผลก่อน','bad');
+    busy(e.target,true);
+    const { data, error } = await sb.rpc('fn_void_production', { p_batch:id, p_reason:why });
+    busy(e.target,false,'ยืนยันยกเลิก');
+    if(error) return toast(errMsg(error),'bad');
+    close();
+    toast(data || 'ยกเลิกแล้ว','ok');
+    await loadOnHand(S.loc.id);
+    loadProd(kind, on);
   };
 }
 

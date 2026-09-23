@@ -397,9 +397,9 @@ function viewPin(code, nick){
 /* ---------------- เลือกที่ทำงาน ---------------- */
 function pickLocation(){
   const r = S.me.role;
-  const cand = r==='factory' ? S.M.branches.filter(b=>b.kind==='factory')
-             : r==='branch'  ? S.M.branches.filter(b=>b.kind!=='factory')
-             : S.M.branches;   // owner + manager = ไปได้ทุกที่
+  const cand = r==='branch'  ? S.M.branches.filter(b=>b.kind!=='factory')
+             : r==='factory' ? [...S.M.branches].sort((x,y)=>(y.kind==='factory')-(x.kind==='factory'))  // โรงงานขึ้นก่อน
+             : S.M.branches;   // owner + manager + โรงงาน (หรั่งไปช่วยหน้าสาขาได้) = ไปได้ทุกที่
   if(!cand.length){ app.innerHTML=''; return toast('ไม่มีสาขาที่เปิดอยู่','bad'); }
   const saved = localStorage.getItem('loc');
   const hit = cand.find(b=>b.id===saved);
@@ -455,7 +455,8 @@ async function viewHome(){
     }catch(e){}
   }
   const canSwitch = S.me.role==='owner' || S.me.role==='manager'
-    || S.M.branches.filter(b=> S.me.role==='factory'?b.kind==='factory':b.kind!=='factory').length>1;
+    || S.me.role==='factory'
+    || S.M.branches.filter(b=> b.kind!=='factory').length>1;
   app.innerHTML = header("Pyper's สต๊อก") + `<main>
     <div class="card" style="padding:12px 14px">
       <div class="row sp">
@@ -1410,6 +1411,23 @@ async function countResult(id){
   wire(viewHome);
   const { data, error } = await sb.rpc('fn_count_result',{ p_count:id });
   if(error){ app.querySelector('main').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  // พนักงาน: ไม่โชว์ "ควรเหลือ/ต่าง" (กันกรอกตามตัวเลขระบบรอบหน้า) · บอกว่ายอดถูกส่งเข้าตรวจแล้ว
+  if(!(S.me.role==='owner' || S.me.role==='manager')){
+    const tm = new Date().toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Bangkok'});
+    app.querySelector('main').innerHTML = `
+      <div class="note okbox" style="text-align:center;padding:18px 14px">
+        <div style="font-size:32px;line-height:1.2">🔍</div>
+        <b style="font-size:17px;display:block;margin-top:4px">ส่งยอดนับแล้ว · รอผลตรวจ</b>
+        <div class="sm" style="margin-top:6px">ระบบกำลังตรวจยอดนี้ เทียบกับใบส่งของ ของเสีย และยอดขาย<br>ผลตรวจส่งถึงหัวหน้าทุกวัน</div>
+      </div>
+      <div class="card"><h3>ยอดที่ ${esc(S.me.nickname)} นับ · ${tm}</h3><table>
+        ${data.map(r=>`<tr><td>${esc(r.label)}</td><td class="n">${fmt(r.counted,1)} <span class="mut xs">${esc(r.unit_base||'')}</span></td></tr>`).join('')}
+      </table>
+      <div class="xs mut" style="margin-top:8px">กรอกผิด → กดนับใหม่ได้เลย ระบบใช้ยอดล่าสุด</div></div>
+      <button class="btn" id="hm" style="margin-top:6px">กลับหน้าหลัก</button>`;
+    $('#hm').onclick = viewHome;
+    return;
+  }
   const bad = data.filter(r=>num(r.diff)!==0);
   app.querySelector('main').innerHTML = `
     <div class="note ${bad.length?'err':'okbox'}">${bad.length

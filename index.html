@@ -146,6 +146,11 @@ hr.d{border:none;border-top:1px solid var(--line);margin:14px 0}
 .diffneg{color:var(--bad);font-weight:600}
 .diffpos{color:var(--warn);font-weight:600}
 .diffz{color:var(--ok);font-weight:600}
+.tri{display:flex;gap:4px;flex-shrink:0}
+.tri button{background:var(--card2);border:1px solid var(--line);color:var(--mut);border-radius:9px;padding:8px 9px;font-size:13px;font-family:inherit;cursor:pointer}
+.tri button.on[data-v=ok]{background:var(--ok);border-color:var(--ok);color:#fff}
+.tri button.on[data-v=low]{background:var(--warn);border-color:var(--warn);color:#111}
+.tri button.on[data-v=out]{background:var(--bad);border-color:var(--bad);color:#fff}
 </style>
 </head>
 <body>
@@ -271,8 +276,13 @@ async function loadMaster(){
     cap, cats: ct.data, rec,
     branches: br.data.filter(b=>!b.closed_on || b.closed_on > d),
     allBranches: br.data,
-    items, reasons: wr.data, emps: em.data,
+    items, reasons: wr.data, emps: em.data, flags: [],
   };
+  // ของใช้ที่กดแค่สถานะ พอ/ใกล้หมด/หมด
+  try{
+    const f = await sb.from('supply_flags').select('id,code,label,sort_order').eq('active',true).order('sort_order');
+    if(!f.error) S.M.flags = f.data || [];
+  }catch(e){}
 }
 
 async function loadOnHand(branchId){
@@ -934,6 +944,14 @@ function transferView(fromFactory){
       if(!rows.length){ $('#plan').innerHTML = '<div class="note">ที่นี่ยังไม่มีของให้ส่ง</div>'; return; }
     }
     let html = '', cat = '';
+    if(fromFactory){
+      try{
+        const fs = await sb.rpc('fn_supply_status',{ p_branch: to });
+        const bad = (fs.data||[]).filter(r=>r.status!=='ok').sort((a,b)=>a.sort_order-b.sort_order);
+        if(bad.length) html += `<div class="note err" style="margin-top:10px">🧴 สาขาแจ้งของใช้: ${
+          bad.map(r=>`<b>${esc(r.label)}</b> ${r.status==='out'?'หมด':'ใกล้หมด'}`).join(' · ')}</div>`;
+      }catch(e){}
+    }
     for(const r of rows){
       if(r.cat!==cat){ cat=r.cat; html += `<div class="card" style="padding:12px 14px;margin:14px 0 8px"><h3 style="margin:0">${esc(cat)}</h3></div>`; }
       const byMajor = r.bpm>1;
@@ -941,7 +959,8 @@ function transferView(fromFactory){
       html += `<div class="li" data-row="${r.id}" data-bpm="${r.bpm}" data-major="${byMajor?1:0}">
         <div class="nm">${esc(r.label)}
           <small>ที่นี่มี ${esc(boxTxt(have, r.bpm, r.um, r.ub))}${
-            r.share!=null?` · สาขาขายได้ ${r.share}%`:''}</small></div>
+            r.share!=null?` · สาขาขายได้ ${r.share}%`:''}${
+            r.cat==='ของใช้' && r.there!=null ? ` · สาขามี ${esc(boxTxt(r.there, r.bpm, r.um, r.ub))}` : ''}</small></div>
         <input type="number" inputmode="numeric" min="0" step="1" class="qs"
           value="${byMajor ? (r.sendMajor??0) : (r.sendBase??0)}" style="width:${byMajor?58:72}px">
         <div class="u">${esc(byMajor?r.um:r.ub)}</div>
@@ -1293,12 +1312,16 @@ function scCount(){
   const its = S.M.items.filter(x=> fac ? true : (!x.fac && x.level==='packed'));
   const title = fac ? 'นับสต๊อกโรงงาน' : 'นับสต๊อกประจำวัน';
   let html = '', cat = '';
-  const order = fac ? ['filling','packed','raw'] : ['packed'];
-  const levTh = {filling:'ไส้ (กก.)', packed:'ของพร้อมขาย', raw:'วัตถุดิบ'};
-  for(const lv of order){
-    const g = its.filter(x=>x.level===lv);
+  const groups = [
+    ...(fac ? [['ไส้ (กก.)', x=>x.level==='filling']] : []),
+    ['ของพร้อมขาย', x=>x.level==='packed' && x.cat!=='SUPPLY'],
+    ['🧴 ของใช้', x=>x.cat==='SUPPLY'],
+    ...(fac ? [['วัตถุดิบ', x=>x.level==='raw']] : []),
+  ];
+  for(const [gname, gf] of groups){
+    const g = its.filter(gf);
     if(!g.length) continue;
-    html += `<div class="card"><h3>${esc(levTh[lv])}</h3><div class="lst">`;
+    html += `<div class="card"><h3>${esc(gname)}</h3><div class="lst">`;
     for(const x of g){
       const byM = x.bpm>1;
       html += `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}">
@@ -1315,11 +1338,24 @@ function scCount(){
     <div class="note">นับของจริงที่เห็นตรงหน้า · ระบบจะเทียบกับที่ควรเหลือให้หลังกดส่ง</div>
     ${dateField('d')}
     ${html}
+    ${(S.M.flags||[]).length ? `<div class="card"><h3>🧴 เหลือพอไหม</h3><div class="lst">
+      ${S.M.flags.map(f=>`<div class="li" data-flag="${f.id}">
+        <div class="nm">${esc(f.label)}</div>
+        <div class="tri">${[['ok','พอ'],['low','ใกล้หมด'],['out','หมด']].map(([v,t])=>`<button type="button" data-v="${v}">${t}</button>`).join('')}</div>
+      </div>`).join('')}</div></div>` : ''}
     <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
     <button class="btn" id="save">ส่งผลการนับ</button>
   </main>`;
   wire(viewHome);
+  app.querySelector('main').addEventListener('click', e=>{
+    const b = e.target.closest('.tri button'); if(!b) return;
+    const li = b.closest('[data-flag]'); li.dataset.v = b.dataset.v;
+    li.querySelectorAll('.tri button').forEach(x=>x.classList.toggle('on', x===b));
+  });
   $('#save').onclick = async e=>{
+    const fl = [...document.querySelectorAll('.li[data-flag]')];
+    const miss = fl.filter(li=>!li.dataset.v);
+    if(miss.length) return toast(`ของใช้ยังไม่ได้เลือก พอ/ใกล้หมด/หมด อีก ${miss.length} รายการ`,'bad');
     const lines = [...document.querySelectorAll('.li[data-item]')].map(li=>{
       const bpm = num(li.dataset.bpm);
       const M = li.querySelector('.cM'), m = li.querySelector('.cm');
@@ -1339,6 +1375,11 @@ function scCount(){
     });
     busy(e.target,false,'ส่งผลการนับ');
     if(error) return toast(errMsg(error),'bad');
+    if(fl.length){
+      const r2 = await sb.rpc('fn_save_supply_status',{ p_branch:S.loc.id,
+        p_items: fl.map(li=>({ flag: li.dataset.flag, status: li.dataset.v })) });
+      if(r2.error) toast('ยอดนับบันทึกแล้ว แต่สถานะของใช้บันทึกไม่สำเร็จ: '+errMsg(r2.error),'bad');
+    }
     await loadOnHand(S.loc.id);
     countResult(data);
   };
@@ -1808,9 +1849,10 @@ async function drawPerf(on){
   const box = $('#pf'); if(!box) return;
   box.innerHTML = '<div class="ldg">กำลังรวมตัวเลข…</div>';
   const pv = new Date(on+'T00:00:00'); pv.setDate(pv.getDate()-1);
-  const [a, b] = await Promise.all([
+  const [a, b, c] = await Promise.all([
     sb.rpc('fn_daily_perf', { p_on: on }),
     sb.rpc('fn_daily_perf', { p_on: pv.toLocaleDateString('sv-SE') }),
+    sb.rpc('fn_supply_status', {}),
   ]);
   if(a.error){ box.innerHTML = `<div class="note err">${esc(errMsg(a.error))}</div>`; return; }
   const R = a.data || [], Y = b.data || [];
@@ -1894,6 +1936,32 @@ async function drawPerf(on){
       }).join('') + (base ? `<div class="xs mut" style="padding:6px 0">+ ${base} รายการนับครั้งแรก (ตั้งต้น)</div>` : '') + `</div>`;
     });
   });
+  // ---- ของใช้ที่ใช้ไป (นับจากสต๊อก รวมทุกรอบของวัน) ----
+  let usedHtml = '';
+  grp(of(R,'used').filter(r => r.qty !== null)).forEach((rows, loc) => {
+    const m = new Map();
+    rows.forEach(r => { const k = r.item + '|' + r.unit; m.set(k, (m.get(k) || 0) + num(r.qty)); });
+    usedHtml += `<div style="margin:6px 0 2px"><b>${esc(loc)}</b></div><div class="lst" style="margin-bottom:10px">` +
+      [...m].map(([k, q]) => { const [it, u] = k.split('|');
+        return q < 0 ? row(esc(it), 'นับได้เกินที่ควรมี', '+' + fmt(-q), u, 'diffpos') : row(esc(it), '', fmt(q), u); }).join('') + `</div>`;
+  });
+
+  // ---- ของใช้ที่แจ้งว่าใกล้หมด/หมด (สถานะล่าสุดของแต่ละที่) ----
+  let supHtml = '';
+  const sup = (c && !c.error ? c.data || [] : []);
+  const supBad = sup.filter(r => r.status !== 'ok');
+  if(supBad.length){
+    const byB = new Map();
+    supBad.sort((x, y) => x.sort_order - y.sort_order).forEach(r => {
+      if(!byB.has(r.branch_name)) byB.set(r.branch_name, []); byB.get(r.branch_name).push(r); });
+    byB.forEach((rows, loc) => {
+      supHtml += `<div style="margin:6px 0 8px"><b>${esc(loc)}</b><div class="sm">${rows.map(r =>
+        `<span class="${r.status === 'out' ? 'diffneg' : 'diffpos'}">${esc(r.label)} ${r.status === 'out' ? 'หมด' : 'ใกล้หมด'}</span>`).join(' · ')}</div></div>`;
+    });
+  } else if(sup.length){
+    supHtml = `<div class="xs mut">ทุกที่แจ้งว่าของใช้ยังพอ 👍</div>`;
+  }
+
   const noCount = of(R,'nocount').map(r => r.loc);
   if(noCount.length) soldHtml += `<div class="note" style="margin-top:8px">ยังไม่นับวันนี้ → ยังไม่รู้ยอดขาย<br><b>${noCount.map(esc).join(' · ')}</b></div>`;
 
@@ -1917,6 +1985,8 @@ async function drawPerf(on){
     + card('🥣 ทำไส้', makeRows ? `<div class="lst">${makeRows}</div>` : '', 'วันนี้ยังไม่มีบันทึกทำไส้')
     + (sauceRows ? card('🥫 ผสม / แบ่งบรรจุ', `<div class="lst">${sauceRows}</div>`, '') : '')
     + card('🏬 สาขาขายไป <span class="xs mut" style="font-weight:400">(คิดจากสต๊อก)</span>', soldHtml, 'ยังไม่มีสาขาไหนนับ')
+    + (usedHtml ? card('🧴 ของใช้ที่ใช้ไป <span class="xs mut" style="font-weight:400">(คิดจากสต๊อก)</span>', usedHtml, '') : '')
+    + (supHtml ? card('🧴 ของใช้ที่แจ้งมา', supHtml, '') : '')
     + card('🚚 ส่งออกจากโรงงาน', shipHtml, 'วันนี้ยังไม่มีใบส่งของ')
     + (wasteHtml ? card('🗑️ ของเสีย', wasteHtml, '') : '')
     + `<div class="xs mut" style="margin-bottom:24px">

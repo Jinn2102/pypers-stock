@@ -285,6 +285,13 @@ async function loadMaster(){
   }catch(e){}
 }
 
+async function reloadFlags(){
+  try{
+    const f = await sb.from('supply_flags').select('id,code,label,sort_order').eq('active',true).order('sort_order');
+    if(!f.error) S.M.flags = f.data || [];
+  }catch(e){}
+}
+
 async function loadOnHand(branchId){
   const { data, error } = await sb.from('v_on_hand').select('stock_item_id,qty_base').eq('branch_id', branchId);
   if(error) throw error;
@@ -1342,20 +1349,33 @@ function scCount(){
       ${S.M.flags.map(f=>`<div class="li" data-flag="${f.id}">
         <div class="nm">${esc(f.label)}</div>
         <div class="tri">${[['ok','พอ'],['low','ใกล้หมด'],['out','หมด']].map(([v,t])=>`<button type="button" data-v="${v}">${t}</button>`).join('')}</div>
-      </div>`).join('')}</div></div>` : ''}
+      </div>`).join('')}<div id="nfbox"></div></div>
+      <button type="button" class="btn gh sm2" id="addFlag" style="margin-top:10px">+ เพิ่มของอื่นที่ใกล้หมด / หมด</button>
+      <div class="xs mut" style="margin-top:6px">ของที่ไม่มีในรายการ พิมพ์เพิ่มได้เลย · ครั้งหน้าจะขึ้นให้ทุกสาขาเช็กด้วย</div></div>` : ''}
     <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
     <button class="btn" id="save">ส่งผลการนับ</button>
   </main>`;
   wire(viewHome);
   app.querySelector('main').addEventListener('click', e=>{
+    if(e.target.closest('#addFlag')){
+      const r = document.createElement('div'); r.className = 'li'; r.dataset.new = '1';
+      r.innerHTML = `<input class="nf" placeholder="ชื่อของ เช่น ทิชชู่" maxlength="60" style="flex:1;width:auto;min-width:0;font-size:15px;text-align:left">
+        <div class="tri">${[['ok','พอ'],['low','ใกล้หมด'],['out','หมด']].map(([v,t])=>`<button type="button" data-v="${v}">${t}</button>`).join('')}</div>`;
+      $('#nfbox').appendChild(r); r.querySelector('.nf').focus();
+      return;
+    }
     const b = e.target.closest('.tri button'); if(!b) return;
-    const li = b.closest('[data-flag]'); li.dataset.v = b.dataset.v;
+    const li = b.closest('[data-flag],[data-new]'); li.dataset.v = b.dataset.v;
     li.querySelectorAll('.tri button').forEach(x=>x.classList.toggle('on', x===b));
   });
   $('#save').onclick = async e=>{
     const fl = [...document.querySelectorAll('.li[data-flag]')];
     const miss = fl.filter(li=>!li.dataset.v);
     if(miss.length) return toast(`ของใช้ยังไม่ได้เลือก พอ/ใกล้หมด/หมด อีก ${miss.length} รายการ`,'bad');
+    const nw = [...document.querySelectorAll('.li[data-new]')]
+      .map(li=>({ name: li.querySelector('.nf').value.trim(), status: li.dataset.v || '' })).filter(x=>x.name);
+    const nwMiss = nw.find(x=>!x.status);
+    if(nwMiss) return toast(`"${nwMiss.name}" ยังไม่ได้เลือก พอ/ใกล้หมด/หมด`,'bad');
     const lines = [...document.querySelectorAll('.li[data-item]')].map(li=>{
       const bpm = num(li.dataset.bpm);
       const M = li.querySelector('.cM'), m = li.querySelector('.cm');
@@ -1375,10 +1395,11 @@ function scCount(){
     });
     busy(e.target,false,'ส่งผลการนับ');
     if(error) return toast(errMsg(error),'bad');
-    if(fl.length){
+    if(fl.length || nw.length){
       const r2 = await sb.rpc('fn_save_supply_status',{ p_branch:S.loc.id,
-        p_items: fl.map(li=>({ flag: li.dataset.flag, status: li.dataset.v })) });
+        p_items: fl.map(li=>({ flag: li.dataset.flag, status: li.dataset.v })).concat(nw) });
       if(r2.error) toast('ยอดนับบันทึกแล้ว แต่สถานะของใช้บันทึกไม่สำเร็จ: '+errMsg(r2.error),'bad');
+      else if(nw.length) await reloadFlags();
     }
     await loadOnHand(S.loc.id);
     countResult(data);
@@ -1962,6 +1983,7 @@ async function drawPerf(on){
     supHtml = `<div class="xs mut">ทุกที่แจ้งว่าของใช้ยังพอ 👍</div>`;
   }
 
+  const canEditFlags = S.me.role === 'owner' || S.me.role === 'manager';
   const noCount = of(R,'nocount').map(r => r.loc);
   if(noCount.length) soldHtml += `<div class="note" style="margin-top:8px">ยังไม่นับวันนี้ → ยังไม่รู้ยอดขาย<br><b>${noCount.map(esc).join(' · ')}</b></div>`;
 
@@ -1986,13 +2008,45 @@ async function drawPerf(on){
     + (sauceRows ? card('🥫 ผสม / แบ่งบรรจุ', `<div class="lst">${sauceRows}</div>`, '') : '')
     + card('🏬 สาขาขายไป <span class="xs mut" style="font-weight:400">(คิดจากสต๊อก)</span>', soldHtml, 'ยังไม่มีสาขาไหนนับ')
     + (usedHtml ? card('🧴 ของใช้ที่ใช้ไป <span class="xs mut" style="font-weight:400">(คิดจากสต๊อก)</span>', usedHtml, '') : '')
-    + (supHtml ? card('🧴 ของใช้ที่แจ้งมา', supHtml, '') : '')
+    + ((supHtml || canEditFlags) ? card('🧴 ของใช้ที่แจ้งมา', (supHtml || '<div class="xs mut">ยังไม่มีใครแจ้ง</div>')
+        + (canEditFlags ? '<button class="btn gh sm2" id="flagAdm" style="margin-top:10px">แก้รายการที่ให้เช็ก</button>' : ''), '') : '')
     + card('🚚 ส่งออกจากโรงงาน', shipHtml, 'วันนี้ยังไม่มีใบส่งของ')
     + (wasteHtml ? card('🗑️ ของเสีย', wasteHtml, '') : '')
     + `<div class="xs mut" style="margin-bottom:24px">
         <b>ขายไป</b> = ควรเหลือ − นับได้จริง · ตอนนี้<b>รวมของที่หายไว้ด้วย</b> เพราะยอด POS ยังไม่เข้าระบบ
         พอยอด POS เข้า จะแยกได้ว่าเท่าไหร่ขายจริง เท่าไหร่หาย<br>
         นับแค่รอบที่ยังไม่ถูกยกเลิก · เปลี่ยนวันที่ด้านบนเพื่อดูวันก่อน</div>`;
+  const fa = $('#flagAdm'); if(fa) fa.onclick = flagAdmin;
+}
+
+/* ---------- แก้รายการของที่ให้เช็ก พอ/ใกล้หมด/หมด (เจ้าของ/หัวหน้า) ---------- */
+async function flagAdmin(){
+  const { data, error } = await sb.rpc('fn_supply_flags_admin');
+  if(error) return toast(errMsg(error),'bad');
+  const rows = data || [];
+  const dt = t => t ? new Date(t).toLocaleDateString('th-TH',{day:'numeric',month:'short',timeZone:'Asia/Bangkok'}) : '';
+  const s = sheet(`<h3 style="margin:0 0 4px">รายการที่ให้เช็ก พอ / ใกล้หมด / หมด</h3>
+    <div class="xs mut" style="margin-bottom:10px">แก้ชื่อแล้วกด ✓ · <b>ซ่อน</b> = ไม่ต้องเช็กอีก (ประวัติยังอยู่ · ถ้าหน้าร้านพิมพ์ชื่อเดิมมาอีก จะกลับมาเอง)</div>
+    <div style="max-height:58vh;overflow:auto">${rows.map(r=>`<div class="li" data-fid="${r.id}" style="${r.active?'':'opacity:.5'}">
+      <div class="nm"><input class="fl-n" value="${esc(r.label)}" maxlength="60" style="width:100%;font-size:15px;padding:8px;text-align:left">
+        <small>${r.seeded ? 'ตั้งต้น' : 'เพิ่มโดย ' + esc(r.by_name || '-') + ' · ' + dt(r.created_at)}${r.active ? '' : ' · ซ่อนอยู่'}</small></div>
+      <button class="btn gh sm2" data-a="save" style="width:auto;padding:8px 10px">✓</button>
+      <button class="btn gh sm2" data-a="tog" style="width:auto;padding:8px 10px">${r.active ? 'ซ่อน' : 'แสดง'}</button>
+    </div>`).join('')}</div>
+    <button class="btn gh sm2" id="fa_x" style="margin-top:10px">ปิด</button>`);
+  s.el.querySelector('#fa_x').onclick = s.close;
+  s.el.querySelector('.sheetbox').addEventListener('click', async e=>{
+    const b = e.target.closest('[data-a]'); if(!b) return;
+    const li = b.closest('[data-fid]'); const r = rows.find(x=>x.id===li.dataset.fid); if(!r) return;
+    const args = b.dataset.a === 'save'
+      ? { p_flag: r.id, p_label: li.querySelector('.fl-n').value }
+      : { p_flag: r.id, p_active: !r.active };
+    const res = await sb.rpc('fn_edit_supply_flag', args);
+    if(res.error) return toast(errMsg(res.error),'bad');
+    toast('บันทึกแล้ว','ok');
+    await reloadFlags();
+    s.close(); flagAdmin();
+  });
 }
 
 async function scDash(){

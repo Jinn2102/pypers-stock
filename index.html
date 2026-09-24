@@ -401,14 +401,12 @@ function pickLocation(){
              : r==='factory' ? [...S.M.branches].sort((x,y)=>(y.kind==='factory')-(x.kind==='factory'))  // โรงงานขึ้นก่อน
              : S.M.branches;   // owner + manager + โรงงาน (หรั่งไปช่วยหน้าสาขาได้) = ไปได้ทุกที่
   if(!cand.length){ app.innerHTML=''; return toast('ไม่มีสาขาที่เปิดอยู่','bad'); }
-  const saved = localStorage.getItem('loc');
-  const hit = cand.find(b=>b.id===saved);
+  // เจ้าของสั่ง 25 ก.ย.: เปิดแอปทุกครั้งต้องเลือกสาขาใหม่ (กันลืมเปลี่ยน แล้วยอดไปลงร้านที่ไปช่วยเมื่อวาน)
   if(cand.length===1) return setLoc(cand[0]);
-  if(hit && r!=='owner') return setLoc(hit);
   app.innerHTML = `
   <div class="hd"><h1>สวัสดี ${esc(S.me.nickname)}</h1><div class="who">${roleTh(r)}</div></div>
   <main>
-    <div class="note">เลือกว่าตอนนี้คุณอยู่ที่ไหน · เปลี่ยนทีหลังได้จากปุ่มมุมบน</div>
+    <div class="note"><b>📍 ตอนนี้คุณอยู่ที่ไหน?</b><br>เลือกให้ถูก · ทุกอย่างที่บันทึกจะลงที่นี่</div>
     ${cand.map(b=>`<button class="tile" data-id="${b.id}">
       <div class="ic">${b.kind==='factory'?'🏭':(b.kind==='popup'?'⛺':'🏬')}</div>
       <div class="tx"><b>${esc(b.name)}</b><span>${b.kind==='factory'?'โรงงาน':(b.kind==='popup'?'ป๊อปอัพ':'สาขา')}</span></div>

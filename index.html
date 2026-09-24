@@ -67,6 +67,8 @@ select{-webkit-appearance:none;appearance:none;
 .li .nm small{display:block;color:var(--mut);font-size:11.5px}
 .li input{width:96px;padding:9px;font-size:16px}
 .li .u{width:36px;font-size:12px;color:var(--mut);text-align:left}
+.li.miss input:placeholder-shown{border-color:var(--bad);background:rgba(220,70,70,.08)}
+.li.miss .nm{color:var(--bad)}
 .pill{display:inline-block;background:var(--card2);border:1px solid var(--line);border-radius:999px;
   padding:3px 11px;font-size:12.5px;color:var(--mut);margin:0 0 0 6px}
 .note{background:rgba(232,115,74,.09);border:1px solid rgba(232,115,74,.3);border-radius:10px;
@@ -1336,11 +1338,11 @@ function supRow(x){
   if(x.pcode==='SUP_OIL'){
     return `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}" data-oil="1" style="flex-wrap:wrap">
       <div class="nm">${esc(x.label)}<small>แกลลอนที่ยังไม่เปิด</small></div>
-      <input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder="0" style="width:72px">
+      <input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder=" " style="width:72px">
       <div class="u">${esc(x.um||'แกลลอน')}</div>
       <div style="flex-basis:100%;display:flex;align-items:center;gap:10px">
-        <div class="nm" style="font-size:13.5px">แกลลอนที่เปิดอยู่<small>แขวนชั่งทั้งแกลลอน · ไม่มีที่เปิดอยู่ = เว้นว่าง</small></div>
-        <input type="number" inputmode="decimal" min="0" step="0.01" class="ckg" placeholder="กก." style="width:72px">
+        <div class="nm" style="font-size:13.5px">แกลลอนที่เปิดอยู่<small>แขวนชั่งทั้งแกลลอน · ไม่มีแกลลอนที่เปิดอยู่ ใส่ 0</small></div>
+        <input type="number" inputmode="decimal" min="0" step="0.01" class="ckg" placeholder=" " style="width:72px">
         <div class="u">กก.</div>
       </div>
       <div class="xs oilp" style="flex-basis:100%;text-align:right;min-height:0"></div>
@@ -1351,7 +1353,7 @@ function supRow(x){
   return `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}" data-sup="1">
     <div class="nm">${esc(x.label)}${byM?`<small>1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)}</small>`
       : dec ? `<small>ชั่งรวมทั้งหมดที่เหลือ</small>` : ''}</div>
-    <input type="number" inputmode="${dec?'decimal':'numeric'}" min="0" step="${dec?'0.01':'1'}" class="${byM?'cM':'cm'}" placeholder="0" style="width:72px">
+    <input type="number" inputmode="${dec?'decimal':'numeric'}" min="0" step="${dec?'0.01':'1'}" class="${byM?'cM':'cm'}" placeholder=" " style="width:72px">
     <div class="u">${esc(byM ? x.um : x.ub)}</div>
   </div>`;
 }
@@ -1361,6 +1363,7 @@ function oilPreview(li){
   const kg = kgI.value === '' ? null : num(kgI.value);
   const tare = num(S.set.oil_tare_kg), net = num(S.set.oil_net_kg);
   if(kg === null){ out.innerHTML = ''; return; }
+  if(kg === 0){ out.innerHTML = '<span class="mut">ไม่มีแกลลอนที่เปิดอยู่</span>'; return; }
   if(kg > 0 && kg < tare){ out.innerHTML = `<span class="diffneg">เบากว่าแกลลอนเปล่า (${fmt(tare,1)} กก.) — ชั่งใหม่อีกที</span>`; return; }
   if(net && kg > tare + net + 0.5){ out.innerHTML = `<span class="diffneg">หนักกว่าแกลลอนเต็ม (${fmt(tare+net,1)} กก.) — ชั่งใหม่อีกที</span>`; return; }
   const l = oilL(kg);
@@ -1389,16 +1392,16 @@ function scCount(){
       const byM = x.bpm>1;
       html += `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}">
         <div class="nm">${esc(x.label)}${byM?`<small>1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)}</small>`:''}</div>
-        ${byM?`<input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder="0" style="width:72px">
+        ${byM?`<input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder=" " style="width:72px">
                <div class="u">${esc(x.um)}</div>`:''}
-        <input type="number" inputmode="decimal" min="0" step="any" class="cm" placeholder="0" style="width:72px">
+        <input type="number" inputmode="decimal" min="0" step="any" class="cm" placeholder=" " style="width:72px">
         <div class="u">${esc(x.ub)}</div>
       </div>`;
     }
     html += `</div></div>`;
   }
   app.innerHTML = header(title, S.loc.name, viewHome) + `<main>
-    <div class="note">นับของจริงที่เห็นตรงหน้า · ระบบจะเทียบกับที่ควรเหลือให้หลังกดส่ง</div>
+    <div class="note">นับของจริงที่เห็นตรงหน้า · <b>ต้องกรอกทุกช่อง</b> · ของที่ไม่มี ใส่ 0</div>
     ${dateField('d')}
     ${html}
     <div class="card"><h3>🧴 ของอื่นที่ใกล้หมด / หมด</h3><div class="lst">
@@ -1413,6 +1416,9 @@ function scCount(){
   </main>`;
   wire(viewHome);
   app.querySelector('main').addEventListener('input', e=>{
+    const li = e.target.closest('.li.miss');
+    if(li){ const M = li.querySelector('.cM'), m = li.querySelector('.cm'), K = li.querySelector('.ckg');
+      if(((M && M.value!=='') || (m && m.value!=='')) && !(K && K.value==='')) li.classList.remove('miss'); }
     if(e.target.classList.contains('ckg')) oilPreview(e.target.closest('.li'));
   });
   app.querySelector('main').addEventListener('click', e=>{
@@ -1428,6 +1434,21 @@ function scCount(){
     li.querySelectorAll('.tri button').forEach(x=>x.classList.toggle('on', x===b));
   });
   $('#save').onclick = async e=>{
+    // บังคับทุกช่อง: ช่องว่าง ≠ 0 (อาจลืมนับ) → ไม่เดาให้ · ของที่ไม่มีต้องใส่ 0 เอง
+    const blank = [...document.querySelectorAll('.li[data-item]')].filter(li=>{
+      const M = li.querySelector('.cM'), m = li.querySelector('.cm'), K = li.querySelector('.ckg');
+      const cnt = (M && M.value!=='') || (m && m.value!=='');
+      return !cnt || (K && K.value==='');
+    });
+    document.querySelectorAll('.li.miss').forEach(li=>li.classList.remove('miss'));
+    if(blank.length){
+      blank.forEach(li=>li.classList.add('miss'));
+      const f = blank[0];
+      f.scrollIntoView({block:'center', behavior:'smooth'});
+      const emp = [...f.querySelectorAll('input')].find(i=>i.value==='');
+      if(emp) setTimeout(()=>emp.focus({preventScroll:true}), 350);
+      return toast(`ยังไม่ได้นับ ${blank.length} รายการ (กรอบแดง) · ของที่ไม่มี ใส่ 0`,'bad');
+    }
     const fl = [...document.querySelectorAll('.li[data-flag]')];
     const miss = fl.filter(li=>!li.dataset.v);
     if(miss.length) return toast(`ของใช้ยังไม่ได้เลือก พอ/ใกล้หมด/หมด อีก ${miss.length} รายการ`,'bad');
@@ -1452,9 +1473,6 @@ function scCount(){
     });
     const filled = lines.filter(l=>l.touched);
     if(!filled.length) return toast('ยังไม่ได้นับอะไรเลย','bad');
-    if(filled.length < lines.length){
-      if(!confirm(`ยังไม่ได้กรอก ${lines.length-filled.length} รายการ\nรายการที่เว้นว่างจะถูกนับเป็น 0\n\nส่งเลยไหม?`)) return;
-    }
     busy(e.target,true);
     const { data, error } = await sb.rpc('fn_save_count',{
       p_branch:S.loc.id, p_kind: fac?'weekly':'daily', p_on:$('#d').value,

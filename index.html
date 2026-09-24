@@ -1315,6 +1315,60 @@ async function loadReceipts(on){
   </div>`;
 }
 
+/* ---------- ของใช้: นับเฉพาะแพ็กที่ยังไม่เปิด · น้ำมัน/ผงชา = ชั่ง ---------- */
+// น้ำมัน: ตัวเลขชั่งจริงจากเจ้าของ (stock.settings) · ลิตร = (กก. − แกลลอนเปล่า) × ลิตรต่อแกลลอน ÷ น้ำหนักน้ำมันเต็มแกลลอน
+function oilL(kg){
+  const tare = num(S.set.oil_tare_kg), net = num(S.set.oil_net_kg), lpg = num(S.set.oil_l_per_gal) || 13.75;
+  if(!net) return null;
+  return Math.max(num(kg) - tare, 0) * lpg / net;
+}
+// แสดงจำนวนของใช้เป็นหน่วยที่คนนับจริง: แพ็ก/แถว (+ เศษ) · น้ำมัน = ลิตร · ผงชา = กก.
+function supQty(label, base){
+  const it = S.M.items.find(x=>x.label===label) || {};
+  const v = num(base), bpm = num(it.bpm) || 1;
+  if(it.pcode==='SUP_OIL') return { n: fmt(v,1), u: 'ลิตร' };
+  if(it.ub==='กก.') return { n: fmt(v,2), u: 'กก.' };
+  if(bpm > 1){
+    const M = Math.trunc(v / bpm), r = Math.round((v - M*bpm)*100)/100;
+    return { n: fmt(M), u: it.um || '', r: r ? `+${fmt(r)} ${it.ub||''}` : '' };
+  }
+  return { n: fmt(v), u: it.ub || '' };
+}
+function supRow(x){
+  if(x.pcode==='SUP_OIL'){
+    return `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}" data-oil="1" style="flex-wrap:wrap">
+      <div class="nm">${esc(x.label)}<small>แกลลอนที่ยังไม่เปิด</small></div>
+      <input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder="0" style="width:72px">
+      <div class="u">${esc(x.um||'แกลลอน')}</div>
+      <div style="flex-basis:100%;display:flex;align-items:center;gap:10px">
+        <div class="nm" style="font-size:13.5px">แกลลอนที่เปิดอยู่<small>แขวนชั่งทั้งแกลลอน · ไม่มีที่เปิดอยู่ = เว้นว่าง</small></div>
+        <input type="number" inputmode="decimal" min="0" step="0.01" class="ckg" placeholder="กก." style="width:72px">
+        <div class="u">กก.</div>
+      </div>
+      <div class="xs oilp" style="flex-basis:100%;text-align:right;min-height:0"></div>
+    </div>`;
+  }
+  const byM = x.bpm>1;
+  const dec = x.ub==='กก.';
+  return `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}" data-sup="1">
+    <div class="nm">${esc(x.label)}${byM?`<small>1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)}</small>`
+      : dec ? `<small>ชั่งรวมทั้งหมดที่เหลือ</small>` : ''}</div>
+    <input type="number" inputmode="${dec?'decimal':'numeric'}" min="0" step="${dec?'0.01':'1'}" class="${byM?'cM':'cm'}" placeholder="0" style="width:72px">
+    <div class="u">${esc(byM ? x.um : x.ub)}</div>
+  </div>`;
+}
+function oilPreview(li){
+  const kgI = li.querySelector('.ckg'), out = li.querySelector('.oilp');
+  if(!kgI || !out) return;
+  const kg = kgI.value === '' ? null : num(kgI.value);
+  const tare = num(S.set.oil_tare_kg), net = num(S.set.oil_net_kg);
+  if(kg === null){ out.innerHTML = ''; return; }
+  if(kg > 0 && kg < tare){ out.innerHTML = `<span class="diffneg">เบากว่าแกลลอนเปล่า (${fmt(tare,1)} กก.) — ชั่งใหม่อีกที</span>`; return; }
+  if(net && kg > tare + net + 0.5){ out.innerHTML = `<span class="diffneg">หนักกว่าแกลลอนเต็ม (${fmt(tare+net,1)} กก.) — ชั่งใหม่อีกที</span>`; return; }
+  const l = oilL(kg);
+  out.innerHTML = l === null ? '' : `<span class="mut">= น้ำมันในแกลลอนนี้</span> <b>${fmt(l,1)} ลิตร</b>`;
+}
+
 function scCount(){
   const fac = S.loc.kind==='factory';
   const its = S.M.items.filter(x=> fac ? true : (!x.fac && x.level==='packed'));
@@ -1329,8 +1383,11 @@ function scCount(){
   for(const [gname, gf] of groups){
     const g = its.filter(gf);
     if(!g.length) continue;
-    html += `<div class="card"><h3>${esc(gname)}</h3><div class="lst">`;
+    const isSup = gname.includes('ของใช้');
+    html += `<div class="card"><h3>${esc(gname)}</h3>${isSup
+      ? `<div class="xs mut" style="margin:-4px 0 8px">นับเฉพาะ<b>แพ็กที่ยังไม่เปิด</b> · แพ็กที่เปิดแล้วไม่ต้องนับ</div>` : ''}<div class="lst">`;
     for(const x of g){
+      if(isSup){ html += supRow(x); continue; }
       const byM = x.bpm>1;
       html += `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}">
         <div class="nm">${esc(x.label)}${byM?`<small>1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)}</small>`:''}</div>
@@ -1346,17 +1403,20 @@ function scCount(){
     <div class="note">นับของจริงที่เห็นตรงหน้า · ระบบจะเทียบกับที่ควรเหลือให้หลังกดส่ง</div>
     ${dateField('d')}
     ${html}
-    ${(S.M.flags||[]).length ? `<div class="card"><h3>🧴 เหลือพอไหม</h3><div class="lst">
-      ${S.M.flags.map(f=>`<div class="li" data-flag="${f.id}">
+    <div class="card"><h3>🧴 ของอื่นที่ใกล้หมด / หมด</h3><div class="lst">
+      ${(S.M.flags||[]).map(f=>`<div class="li" data-flag="${f.id}">
         <div class="nm">${esc(f.label)}</div>
         <div class="tri">${[['ok','พอ'],['low','ใกล้หมด'],['out','หมด']].map(([v,t])=>`<button type="button" data-v="${v}">${t}</button>`).join('')}</div>
       </div>`).join('')}<div id="nfbox"></div></div>
-      <button type="button" class="btn gh sm2" id="addFlag" style="margin-top:10px">+ เพิ่มของอื่นที่ใกล้หมด / หมด</button>
-      <div class="xs mut" style="margin-top:6px">ของที่ไม่มีในรายการ พิมพ์เพิ่มได้เลย · ครั้งหน้าจะขึ้นให้ทุกสาขาเช็กด้วย</div></div>` : ''}
+      <button type="button" class="btn gh sm2" id="addFlag" style="margin-top:10px">+ เพิ่มของที่ไม่มีในรายการ</button>
+      <div class="xs mut" style="margin-top:6px">ของที่ไม่มีในรายการข้างบน พิมพ์เพิ่มได้เลย · ครั้งหน้าจะขึ้นให้ทุกสาขาเช็กด้วย</div></div>
     <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
     <button class="btn" id="save">ส่งผลการนับ</button>
   </main>`;
   wire(viewHome);
+  app.querySelector('main').addEventListener('input', e=>{
+    if(e.target.classList.contains('ckg')) oilPreview(e.target.closest('.li'));
+  });
   app.querySelector('main').addEventListener('click', e=>{
     if(e.target.closest('#addFlag')){
       const r = document.createElement('div'); r.className = 'li'; r.dataset.new = '1';
@@ -1377,12 +1437,20 @@ function scCount(){
       .map(li=>({ name: li.querySelector('.nf').value.trim(), status: li.dataset.v || '' })).filter(x=>x.name);
     const nwMiss = nw.find(x=>!x.status);
     if(nwMiss) return toast(`"${nwMiss.name}" ยังไม่ได้เลือก พอ/ใกล้หมด/หมด`,'bad');
+    // ชื่อซ้ำกับของที่นับอยู่แล้ว → ให้ไปกรอกช่องนับแทน
+    const nz = s => String(s||'').replace(/\s+/g,'').toLowerCase();
+    const dup = nw.find(x=>S.M.items.some(it=>it.cat==='SUPPLY' && (nz(it.label)===nz(x.name) || nz(it.pname)===nz(x.name))));
+    if(dup) return toast(`"${dup.name}" มีช่องนับอยู่ในการ์ดของใช้ข้างบนแล้ว — กรอกจำนวนตรงนั้นแทน`,'bad');
+    const oilBad = [...document.querySelectorAll('.li[data-oil] .oilp .diffneg')];
+    if(oilBad.length) return toast('น้ำหนักน้ำมันดูผิดปกติ — ชั่งใหม่อีกที','bad');
     const lines = [...document.querySelectorAll('.li[data-item]')].map(li=>{
       const bpm = num(li.dataset.bpm);
-      const M = li.querySelector('.cM'), m = li.querySelector('.cm');
-      const major = M?num(M.value):0, minor = num(m.value);
-      return { item: li.dataset.item, major, minor, base: major*bpm + minor,
-               touched: (M && M.value!=='') || m.value!=='' };
+      const M = li.querySelector('.cM'), m = li.querySelector('.cm'), K = li.querySelector('.ckg');
+      const major = M?num(M.value):0, minor = m?num(m.value):0;
+      const l = { item: li.dataset.item, major, minor, base: major*bpm + minor,
+               touched: (M && M.value!=='') || (m && m.value!=='') || (K && K.value!=='') };
+      if(K && K.value!=='') l.kg = num(K.value);   // ชั่งจริง → ระบบแปลงเป็นลิตรเอง
+      return l;
     });
     const filled = lines.filter(l=>l.touched);
     if(!filled.length) return toast('ยังไม่ได้นับอะไรเลย','bad');
@@ -1392,7 +1460,7 @@ function scCount(){
     busy(e.target,true);
     const { data, error } = await sb.rpc('fn_save_count',{
       p_branch:S.loc.id, p_kind: fac?'weekly':'daily', p_on:$('#d').value,
-      p_note:$('#nt').value, p_lines: lines.map(({item,major,minor,base})=>({item,major,minor,base}))
+      p_note:$('#nt').value, p_lines: lines.map(({item,major,minor,base,kg})=>(kg===undefined ? {item,major,minor,base} : {item,major,minor,base,kg}))
     });
     busy(e.target,false,'ส่งผลการนับ');
     if(error) return toast(errMsg(error),'bad');
@@ -1421,7 +1489,9 @@ async function countResult(id){
         <div class="sm" style="margin-top:6px">ระบบกำลังตรวจยอดนี้ เทียบกับใบส่งของ ของเสีย และยอดขาย<br>ผลตรวจส่งถึงหัวหน้าทุกวัน</div>
       </div>
       <div class="card"><h3>ยอดที่ ${esc(S.me.nickname)} นับ · ${tm}</h3><table>
-        ${data.map(r=>`<tr><td>${esc(r.label)}</td><td class="n">${fmt(r.counted,1)} <span class="mut xs">${esc(r.unit_base||'')}</span></td></tr>`).join('')}
+        ${data.map(r=>{ const sp = S.M.items.some(x=>x.label===r.label && x.cat==='SUPPLY');
+          const v = sp ? supQty(r.label, r.counted) : { n: fmt(r.counted,1), u: r.unit_base||'' };
+          return `<tr><td>${esc(r.label)}</td><td class="n">${v.n} <span class="mut xs">${esc(v.u)}${v.r?' '+esc(v.r):''}</span></td></tr>`; }).join('')}
       </table>
       <div class="xs mut" style="margin-top:8px">กรอกผิด → กดนับใหม่ได้เลย ระบบใช้ยอดล่าสุด</div></div>
       <button class="btn" id="hm" style="margin-top:6px">กลับหน้าหลัก</button>`;
@@ -1899,141 +1969,167 @@ async function drawPerf(on){
   const tot = (rows, s, unit) => of(rows, s)
     .filter(r => r.qty !== null && (!unit || r.unit === unit))
     .reduce((t, r) => t + num(r.qty), 0);
-  const grp = rows => { const m = new Map();
-    rows.forEach(r => { if(!m.has(r.loc)) m.set(r.loc, []); m.get(r.loc).push(r); }); return m; };
-  const card = (title, body, empty) =>
-    `<div class="card"><h3>${title}</h3>${body || `<div class="xs mut">${empty}</div>`}</div>`;
-  const row = (nm, sub, qty, unit, cls='') => `<div class="li">
-      <div class="nm">${nm}${sub ? `<small>${sub}</small>` : ''}</div>
-      <div class="big ${cls}" style="font-size:20px">${qty}</div>
-      <div class="u">${esc(unit||'')}</div></div>`;
-  const yday = (t, y, d=0) => `<span>เมื่อวาน ${y ? fmt(y,d) : '—'}</span>`;
+  const grp = (rows, key = r => r.loc) => { const m = new Map();
+    rows.forEach(r => { const k = key(r); if(!m.has(k)) m.set(k, []); m.get(k).push(r); }); return m; };
+  const short = s => String(s||'').replace(/^Dip /,'').replace(/ \d+ กรัม$/,'');
+  const uTag = u => (u && u !== 'ชิ้น') ? ` <span class="mut xs">${esc(u)}</span>` : '';
 
-  // ---- ตัวเลขใหญ่ด้านบน ----
-  const rolled = tot(R,'roll'), made = tot(R,'make'), sold = tot(R,'sold','ชิ้น');
+  // ---- ตัวเลขใหญ่ 3 ตัว เทียบเมื่อวาน ----
+  const tile = (v, y, d, label) => {
+    const arrow = (v && y) ? (v > y ? '▲' : v < y ? '▼' : '') : '';
+    return `<div class="t"><b>${v ? fmt(v, d) : '—'}</b><span>${label}</span>
+      <span>เมื่อวาน ${y ? fmt(y, d) : '—'} ${arrow ? `<span class="${v > y ? 'diffz' : 'diffneg'}">${arrow}</span>` : ''}</span></div>`;
+  };
   const hero = `<div class="hero">
-    <div class="t"><b>${rolled ? fmt(rolled) : '—'}</b><span>ม้วนได้ (ชิ้น)</span>${yday(rolled, tot(Y,'roll'))}</div>
-    <div class="t"><b>${made ? fmt(made,1) : '—'}</b><span>ทำไส้ (กก.)</span>${yday(made, tot(Y,'make'), 1)}</div>
-    <div class="t"><b>${sold ? fmt(sold) : '—'}</b><span>สาขาขายไป (ชิ้น)</span>${yday(sold, tot(Y,'sold','ชิ้น'))}</div>
+    ${tile(tot(R,'roll'), tot(Y,'roll'), 0, 'ม้วนได้ · ชิ้น')}
+    ${tile(tot(R,'make'), tot(Y,'make'), 1, 'ทำไส้ · กก.')}
+    ${tile(tot(R,'sold','ชิ้น'), tot(Y,'sold','ชิ้น'), 0, 'สาขาขาย · ชิ้น')}
   </div>`;
 
-  // ---- ม้วน รายไส้ + เทียบสเปกกรัม/ชิ้น ----
-  const rollRows = of(R,'roll').map(r => {
-    const m = /([\d.]+) ก\.\/ชิ้น \(สเปก ([\d.]+)\)/.exec(r.extra || '');
-    let tag = '';
-    if(m){
-      const g = +m[1], s = +m[2], p = (g - s) / s * 100;
-      tag = Math.abs(p) <= 5
-        ? ` · <span class="diffz">ตรงสเปก</span>`
-        : ` · <span class="${p < 0 ? 'diffneg' : 'diffpos'}">ไส้${p < 0 ? 'น้อย' : 'มาก'}กว่าสเปก ${fmt(Math.abs(p))}%</span>`;
-    }
-    return row(esc(r.item), esc(r.extra || '') + tag, fmt(r.qty), r.unit);
-  }).join('');
+  // ================= สาขา =================
+  const sup = (c && !c.error ? c.data || [] : []).filter(r => r.status !== 'ok');
+  const supBy = grp(sup, r => r.branch_name);
+  const soldBy = grp(of(R,'sold')), usedBy = grp(of(R,'used')), leftBy = grp(of(R,'left'));
+  const branchLocs = [...new Set([...leftBy.keys(), ...soldBy.keys()])];
 
-  // ---- ใครม้วนเท่าไหร่ ----
-  const rs = of(R,'roller').sort((x, y) => num(y.qty) - num(x.qty));
-  const top = rs.length ? num(rs[0].qty) : 0;
-  const rollerRows = rs.map(r => `<div style="margin-bottom:10px">
-      <div class="seg"><span class="sm">${esc(r.who)}</span><span class="p">${fmt(r.qty)} ชิ้น</span></div>
-      <div class="bar" style="margin:4px 0 0"><i style="width:${top ? Math.round(num(r.qty) / top * 100) : 0}%"></i></div>
-    </div>`).join('');
+  const branchCard = loc => {
+    const left = (leftBy.get(loc) || []).sort((x, y) => String(x.sort2).localeCompare(String(y.sort2)));
+    const moves = [...(soldBy.get(loc) || []), ...(usedBy.get(loc) || [])];
+    // รวมทุกรอบของวัน ต่อของ
+    const sum = new Map();
+    moves.forEach(r => {
+      const s = sum.get(r.item) || { q: 0, known: false, sup: r.section === 'used' };
+      if(r.qty !== null){ s.q += num(r.qty); s.known = true; }
+      sum.set(r.item, s);
+    });
+    const rounds = grp(moves, r => r.sort2);
+    const keys = [...rounds.keys()].sort((x, y) => String(x.split('|')[1]).localeCompare(String(y.split('|')[1])));
+    const lastR = keys.length ? rounds.get(keys[keys.length - 1])[0] : null;
+    const soldPcs = [...sum].filter(([k, s]) => !s.sup && s.known)
+      .reduce((t, [k, s]) => t + ((left.find(l => l.item === k) || {}).unit === 'ชิ้น' ? s.q : 0), 0);
 
-  // ---- ทำไส้ · ผสม/แบ่งบรรจุ ----
-  const makeRows  = of(R,'make').map(r => row(esc(r.item), esc(r.extra || ''), fmt(r.qty, 2), r.unit)).join('');
-  const sauceRows = of(R,'sauce').map(r => row(esc(r.item), '', fmt(r.qty), r.unit)).join('');
+    const cell = (s, isSup, label) => {
+      if(!s || !s.known) return `<td class="n mut xs">ตั้งต้น</td>`;
+      if(s.q < 0){
+        const v = isSup ? supQty(label, -s.q) : { n: fmt(-s.q), u: '' };
+        return `<td class="n diffpos" style="white-space:nowrap">เกิน ${v.n}</td>`;
+      }
+      if(isSup){ const v = supQty(label, s.q); return `<td class="n ${s.q ? '' : 'mut'}" style="white-space:nowrap">${v.n}${v.r ? ` <span class="mut xs">${esc(v.r)}</span>` : ''}</td>`; }
+      return `<td class="n ${s.q ? '' : 'mut'}"><b>${fmt(s.q)}</b></td>`;
+    };
+    const prod = left.filter(l => !(sum.get(l.item) || {}).sup && !S.M.items.some(x => x.label === l.item && x.cat === 'SUPPLY'));
+    const sups = left.filter(l => !prod.includes(l));
+    const prodRows = prod.map(l => `<tr><td>${esc(short(l.item))}${uTag(l.unit)}</td>
+        ${cell(sum.get(l.item), false, l.item)}<td class="n">${fmt(l.qty)}</td></tr>`).join('');
+    const supRows = sups.map(l => { const v = supQty(l.item, l.qty);
+      return `<tr><td>${esc(l.item)} <span class="mut xs">${esc(v.u)}</span></td>
+        ${cell(sum.get(l.item), true, l.item)}<td class="n" style="white-space:nowrap">${v.n}${v.r ? ` <span class="mut xs">${esc(v.r)}</span>` : ''}</td></tr>`; }).join('');
 
-  // ---- สาขา: ขายไป (คิดจากสต๊อก) แยกรายรอบนับ ----
-  //   1 ใบนับ = 1 รอบ · บอกเวลา + คนนับ ไม่เดาว่ากะไหน
-  const soldBy = grp(of(R,'sold'));
-  const pcsOf = rows => rows.filter(r => r.qty !== null && r.unit === 'ชิ้น').reduce((t, r) => t + num(r.qty), 0);
-  let soldHtml = '';
-  soldBy.forEach((rows, loc) => {
-    const rounds = new Map();
-    rows.forEach(r => { if(!rounds.has(r.sort2)) rounds.set(r.sort2, []); rounds.get(r.sort2).push(r); });
-    const keys = [...rounds.keys()].sort();
-    const anyKnown = rows.some(r => r.qty !== null);
-    soldHtml += `<div style="margin:6px 0 2px" class="seg">
-        <b>${esc(loc)}</b><span class="p">${anyKnown ? fmt(pcsOf(rows)) + ' ชิ้น' : ''}${keys.length > 1 ? ` · นับ ${keys.length} รอบ` : ''}</span></div>`;
-    keys.forEach((k, i) => {
+    // รายรอบ (พับไว้)
+    const roundHtml = keys.map((k, i) => {
       const rr = rounds.get(k);
       const [tm, note] = String(rr[0].extra || '|').split('|');
-      const known = rr.filter(r => r.qty !== null);
-      const base  = rr.length - known.length;
-      soldHtml += `<div class="seg" style="margin-top:8px">
-          <span class="sm">${keys.length > 1 ? 'รอบ ' + (i + 1) + ' · ' : 'นับ '}${esc(tm)}${rr[0].who ? ' · ' + esc(rr[0].who) : ''}</span>
-          <span class="p">${known.length ? fmt(pcsOf(rr)) + ' ชิ้น' : ''}</span></div>`;
-      if(!known.length){
-        soldHtml += `<div class="xs mut" style="margin-bottom:10px">นับครั้งแรก = ตั้งต้น · นับรอบถัดไปแล้วจะเริ่มเห็นยอดขาย</div>`;
-        return;
-      }
-      if(note) soldHtml += `<div class="xs mut">${esc(note)}${note.startsWith('รวม') ? ' (ไม่ได้นับระหว่างนั้น)' : ''}</div>`;
-      soldHtml += `<div class="lst" style="margin-bottom:10px">` + known.map(r => {
-        const q = num(r.qty);
-        return q < 0
-          ? row(esc(r.item), 'นับได้เกินที่ควรมี — ของเข้าที่ไม่ได้กรอก หรือนับพลาด', '+' + fmt(-q), r.unit, 'diffpos')
-          : row(esc(r.item), '', fmt(q), r.unit);
-      }).join('') + (base ? `<div class="xs mut" style="padding:6px 0">+ ${base} รายการนับครั้งแรก (ตั้งต้น)</div>` : '') + `</div>`;
-    });
-  });
-  // ---- ของใช้ที่ใช้ไป (นับจากสต๊อก รวมทุกรอบของวัน) ----
-  let usedHtml = '';
-  grp(of(R,'used').filter(r => r.qty !== null)).forEach((rows, loc) => {
-    const m = new Map();
-    rows.forEach(r => { const k = r.item + '|' + r.unit; m.set(k, (m.get(k) || 0) + num(r.qty)); });
-    usedHtml += `<div style="margin:6px 0 2px"><b>${esc(loc)}</b></div><div class="lst" style="margin-bottom:10px">` +
-      [...m].map(([k, q]) => { const [it, u] = k.split('|');
-        return q < 0 ? row(esc(it), 'นับได้เกินที่ควรมี', '+' + fmt(-q), u, 'diffpos') : row(esc(it), '', fmt(q), u); }).join('') + `</div>`;
-  });
+      const known = rr.filter(r => r.qty !== null && r.section === 'sold' && num(r.qty) !== 0);
+      const pcs = rr.filter(r => r.qty !== null && r.section === 'sold' && r.unit === 'ชิ้น').reduce((t, r) => t + num(r.qty), 0);
+      const first = rr.every(r => r.qty === null);
+      return `<div style="padding:8px 0;border-top:1px solid var(--line)">
+        <div class="seg"><span class="sm">รอบ ${i + 1} · ${esc(tm)}${rr[0].who ? ' · ' + esc(rr[0].who) : ''}</span>
+          <span class="p">${first ? '<span class="mut xs">ตั้งต้น</span>' : fmt(pcs) + ' ชิ้น'}</span></div>
+        ${note && !first ? `<div class="xs mut">${esc(note)}</div>` : ''}
+        ${known.length ? `<div class="xs mut" style="margin-top:3px">${known.map(r =>
+          `<span class="${num(r.qty) < 0 ? 'diffpos' : ''}">${esc(short(r.item))} ${num(r.qty) < 0 ? 'เกิน ' + fmt(-num(r.qty)) : fmt(r.qty)}</span>`).join(' · ')}</div>` : ''}
+      </div>`;
+    }).join('');
 
-  // ---- ของใช้ที่แจ้งว่าใกล้หมด/หมด (สถานะล่าสุดของแต่ละที่) ----
-  let supHtml = '';
-  const sup = (c && !c.error ? c.data || [] : []);
-  const supBad = sup.filter(r => r.status !== 'ok');
-  if(supBad.length){
-    const byB = new Map();
-    supBad.sort((x, y) => x.sort_order - y.sort_order).forEach(r => {
-      if(!byB.has(r.branch_name)) byB.set(r.branch_name, []); byB.get(r.branch_name).push(r); });
-    byB.forEach((rows, loc) => {
-      supHtml += `<div style="margin:6px 0 8px"><b>${esc(loc)}</b><div class="sm">${rows.map(r =>
-        `<span class="${r.status === 'out' ? 'diffneg' : 'diffpos'}">${esc(r.label)} ${r.status === 'out' ? 'หมด' : 'ใกล้หมด'}</span>`).join(' · ')}</div></div>`;
-    });
-  } else if(sup.length){
-    supHtml = `<div class="xs mut">ทุกที่แจ้งว่าของใช้ยังพอ 👍</div>`;
-  }
+    const flags = supBy.get(loc) || [];
+    const multi = (moves.map(r => String(r.extra || '').split('|')[1] || '').find(n => n.startsWith('รวม')) || '');
+    return `<div class="card">
+      <h3 style="margin-bottom:2px">🏬 ${esc(loc)}</h3>
+      <div class="xs mut" style="margin-bottom:8px">${lastR
+        ? `นับ ${keys.length} รอบ · ล่าสุด ${esc(String(lastR.extra || '').split('|')[0])}${lastR.who ? ' ' + esc(lastR.who) : ''}`
+        : 'วันนี้ยังไม่นับ'}${soldPcs ? ` · <b style="color:var(--tx)">ขายรวม ${fmt(soldPcs)} ชิ้น</b>` : ''}</div>
+      ${multi ? `<div class="xs diffpos" style="margin:-4px 0 8px">ยอดขายนี้${esc(multi)} (ไม่ได้นับระหว่างนั้น)</div>` : ''}
+      ${left.length ? `<table>
+        <tr><th></th><th class="n">ขาย</th><th class="n">เหลือ</th></tr>
+        ${prodRows}
+        ${supRows ? `<tr><th style="padding-top:14px">🧴 ของใช้</th><th class="n" style="padding-top:14px">ใช้ไป</th><th class="n" style="padding-top:14px">เหลือ</th></tr>${supRows}` : ''}
+      </table>` : ''}
+      ${flags.length ? `<div class="sm" style="margin-top:10px">⚠️ แจ้งมา: ${flags.map(r =>
+        `<span class="${r.status === 'out' ? 'diffneg' : 'diffpos'}">${esc(r.label)} ${r.status === 'out' ? 'หมด' : 'ใกล้หมด'}</span>`).join(' · ')}</div>` : ''}
+      ${keys.length > 1 ? `<details style="margin-top:10px"><summary class="sm" style="cursor:pointer;color:var(--acc)">ดูแยกรายรอบ (${keys.length} รอบ)</summary>${roundHtml}</details>` : ''}
+    </div>`;
+  };
 
-  const canEditFlags = S.me.role === 'owner' || S.me.role === 'manager';
   const noCount = of(R,'nocount').map(r => r.loc);
-  if(noCount.length) soldHtml += `<div class="note" style="margin-top:8px">ยังไม่นับวันนี้ → ยังไม่รู้ยอดขาย<br><b>${noCount.map(esc).join(' · ')}</b></div>`;
+  let branchHtml = branchLocs.map(branchCard).join('');
+  if(noCount.length) branchHtml += `<div class="note">ยังไม่นับวันนี้ → ยังไม่รู้ยอดขาย: <b>${noCount.map(esc).join(' · ')}</b></div>`;
+  if(!branchHtml) branchHtml = `<div class="card"><div class="xs mut">ยังไม่มีสาขาไหนนับ</div></div>`;
 
-  // ---- ส่งออกจากโรงงาน ----
+  // ================= โรงงาน =================
+  const facLocs = [...new Set(['make','roll','roller','sauce'].flatMap(s => of(R, s).map(r => r.loc)))];
+  const specTag = extra => {
+    const m = /([\d.]+) ก\.\/ชิ้น \(สเปก ([\d.]+)\)/.exec(extra || '');
+    if(!m) return '';
+    const g = +m[1], s = +m[2], p = (g - s) / s * 100;
+    return Math.abs(p) <= 5 ? `<span class="diffz">ตรงสเปก</span>`
+      : `<span class="${p < 0 ? 'diffneg' : 'diffpos'}">ไส้${p < 0 ? 'น้อย' : 'มาก'} ${fmt(Math.abs(p))}%</span>`;
+  };
+  const facCard = loc => {
+    const roll = of(R,'roll').filter(r => r.loc === loc);
+    const rollers = of(R,'roller').filter(r => r.loc === loc).sort((x, y) => num(y.qty) - num(x.qty));
+    const make = of(R,'make').filter(r => r.loc === loc);
+    const sauce = of(R,'sauce').filter(r => r.loc === loc);
+    const sec = (t) => `<tr><th colspan="3" style="padding-top:14px">${t}</th></tr>`;
+    return `<div class="card"><h3>🏭 ${esc(loc)}</h3><table>
+      ${roll.length ? sec('🌯 ม้วน') + roll.map(r => `<tr>
+          <td>${esc(r.item)}<div class="xs mut">${esc((r.extra || '').replace(/ \(สเปก [\d.]+\)/, ''))}</div></td>
+          <td class="n xs" style="white-space:nowrap">${specTag(r.extra)}</td>
+          <td class="n"><b>${fmt(r.qty)}</b> <span class="mut xs">ชิ้น</span></td></tr>`).join('') : ''}
+      ${rollers.length ? `<tr><td colspan="3" class="xs mut" style="border:none;padding-top:6px">ใครม้วน: ${rollers.map(r => `<b style="color:var(--tx)">${esc(r.who)}</b> ${fmt(r.qty)}`).join(' · ')}</td></tr>` : ''}
+      ${make.length ? sec('🥣 ทำไส้') + make.map(r => `<tr><td>${esc(r.item)}</td>
+          <td class="n xs mut">${esc(r.extra || '')}</td><td class="n"><b>${fmt(r.qty, 2)}</b> <span class="mut xs">${esc(r.unit)}</span></td></tr>`).join('') : ''}
+      ${sauce.length ? sec('🥫 ผสม / แบ่งบรรจุ') + sauce.map(r => `<tr><td>${esc(short(r.item))}</td><td></td>
+          <td class="n"><b>${fmt(r.qty)}</b> <span class="mut xs">${esc(r.unit)}</span></td></tr>`).join('') : ''}
+    </table></div>`;
+  };
+  let facHtml = facLocs.map(facCard).join('');
+  if(!facHtml) facHtml = `<div class="card"><h3>🏭 โรงงาน</h3><div class="xs mut">วันนี้ยังไม่มีบันทึกทำไส้ / ม้วน</div></div>`;
+
+  // ---- ส่งออกจากโรงงาน: 1 บรรทัดต่อปลายทาง กดดูรายการได้ ----
   let shipHtml = '';
   grp(of(R,'ship')).forEach((rows, loc) => {
-    shipHtml += `<div style="margin:6px 0 2px"><b>${esc(loc)}</b></div><div class="lst" style="margin-bottom:10px">` +
-      rows.map(r => row(esc(r.item), esc(r.extra || ''), fmt(r.qty), r.unit)).join('') + `</div>`;
+    const waiting = rows.some(r => (r.extra || '').startsWith('ยังไม่กดรับ'));
+    shipHtml += `<details style="padding:8px 0;border-top:1px solid var(--line)">
+      <summary class="seg" style="cursor:pointer;list-style:none"><span class="sm">→ ${esc(loc)}</span>
+        <span class="p ${waiting ? 'diffpos' : 'diffz'}">${rows.length} รายการ · ${waiting ? 'ยังไม่กดรับ' : 'รับแล้ว ✓'}</span></summary>
+      <table style="margin-top:6px">${rows.map(r => `<tr><td>${esc(short(r.item))}</td>
+        <td class="n">${fmt(r.qty)} <span class="mut xs">${esc(r.unit)}</span></td>
+        <td class="n xs mut">${esc((r.extra || '').startsWith('รับจริง') ? r.extra : '')}</td></tr>`).join('')}</table>
+    </details>`;
   });
 
   // ---- ของเสีย ----
   let wasteHtml = '';
   grp(of(R,'waste')).forEach((rows, loc) => {
-    wasteHtml += `<div style="margin:6px 0 2px"><b>${esc(loc)}</b></div><div class="lst" style="margin-bottom:10px">` +
-      rows.map(r => row(esc(r.item), '', fmt(r.qty, 2), r.unit, 'diffneg')).join('') + `</div>`;
+    wasteHtml += `<div class="sm" style="margin:6px 0"><b>${esc(loc)}</b>: ${rows.map(r =>
+      `${esc(short(r.item))} <span class="diffneg">${fmt(r.qty, 2)}</span> ${esc(r.unit)}`).join(' · ')}</div>`;
   });
 
+  const canEditFlags = S.me.role === 'owner' || S.me.role === 'manager';
   box.innerHTML = hero
-    + card('🌯 ม้วน', rollRows ? `<div class="lst">${rollRows}</div>` : '', 'วันนี้ยังไม่มีบันทึกม้วน')
-    + (rollerRows ? card('👤 ใครม้วนเท่าไหร่', rollerRows, '') : '')
-    + card('🥣 ทำไส้', makeRows ? `<div class="lst">${makeRows}</div>` : '', 'วันนี้ยังไม่มีบันทึกทำไส้')
-    + (sauceRows ? card('🥫 ผสม / แบ่งบรรจุ', `<div class="lst">${sauceRows}</div>`, '') : '')
-    + card('🏬 สาขาขายไป <span class="xs mut" style="font-weight:400">(คิดจากสต๊อก)</span>', soldHtml, 'ยังไม่มีสาขาไหนนับ')
-    + (usedHtml ? card('🧴 ของใช้ที่ใช้ไป <span class="xs mut" style="font-weight:400">(คิดจากสต๊อก)</span>', usedHtml, '') : '')
-    + ((supHtml || canEditFlags) ? card('🧴 ของใช้ที่แจ้งมา', (supHtml || '<div class="xs mut">ยังไม่มีใครแจ้ง</div>')
-        + (canEditFlags ? '<button class="btn gh sm2" id="flagAdm" style="margin-top:10px">แก้รายการที่ให้เช็ก</button>' : ''), '') : '')
-    + card('🚚 ส่งออกจากโรงงาน', shipHtml, 'วันนี้ยังไม่มีใบส่งของ')
-    + (wasteHtml ? card('🗑️ ของเสีย', wasteHtml, '') : '')
-    + `<div class="xs mut" style="margin-bottom:24px">
-        <b>ขายไป</b> = ควรเหลือ − นับได้จริง · ตอนนี้<b>รวมของที่หายไว้ด้วย</b> เพราะยอด POS ยังไม่เข้าระบบ
-        พอยอด POS เข้า จะแยกได้ว่าเท่าไหร่ขายจริง เท่าไหร่หาย<br>
-        นับแค่รอบที่ยังไม่ถูกยกเลิก · เปลี่ยนวันที่ด้านบนเพื่อดูวันก่อน</div>`;
+    + `<div class="xs mut" style="margin:14px 2px 6px;font-weight:600;letter-spacing:.3px">สาขา</div>` + branchHtml
+    + `<div class="xs mut" style="margin:14px 2px 6px;font-weight:600;letter-spacing:.3px">โรงงาน</div>` + facHtml
+    + (shipHtml ? `<div class="card"><h3>🚚 ส่งของออก</h3>${shipHtml}</div>` : '')
+    + (wasteHtml ? `<div class="card"><h3>🗑️ ของเสีย</h3>${wasteHtml}</div>` : '')
+    + `<div class="card xs mut" style="line-height:1.7">
+        <b style="color:var(--tx)">อ่านตัวเลขยังไง</b><br>
+        <b>ขาย</b> = ของที่ออกจากร้านไประหว่างการนับ (รวมทุกรอบของวัน) · ตอนนี้ยังรวมของหายด้วย เพราะยอด POS ยังไม่เข้าระบบ<br>
+        <b>เหลือ</b> = ที่นับได้ครั้งล่าสุดของวันนั้น<br>
+        <b class="diffpos">เกิน</b> = นับได้มากกว่าที่ควรมี → มักเป็นของเข้าที่ยังไม่กดรับ หรือนับผิด<br>
+        <b>ตั้งต้น</b> = นับครั้งแรก ยังไม่มีอะไรให้เทียบ<br>
+        ของใช้นับเป็นแพ็กที่ยังไม่เปิด · <b>ใช้ไป</b> = จำนวนแพ็กที่ถูกเปิดใช้
+      </div>`
+    + (canEditFlags ? `<button class="btn gh sm2" id="flagAdm" style="margin-bottom:24px">แก้รายการ "ของอื่นที่ใกล้หมด" ที่ให้สาขาเช็ก</button>` : '');
   const fa = $('#flagAdm'); if(fa) fa.onclick = flagAdmin;
 }
 
@@ -2074,6 +2170,8 @@ async function scDash(){
   if(error){ app.querySelector('main').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
 
   // "ไส้ x กก. = กี่ชิ้น" ต้องมาจากที่ม้วนได้จริงเท่านั้น · ยังไม่เคยม้วน = ไม่บอก
+  let supAll = [];
+  try{ const f = await sb.rpc('fn_supply_status', {}); if(!f.error) supAll = f.data || []; }catch(e){}
   let gppMap = new Map();
   try{
     const g = await sb.rpc('fn_gram_per_piece');
@@ -2110,6 +2208,19 @@ async function scDash(){
       return it ? `<i><span class="dot" style="background:var(--s${i+1})"></span>${esc(it.pname)}</i>` : '';
     }).join('')}</div>`;
 
+  // ---- ของใช้ (กล่อง แก้ว ฝา น้ำมัน ไม้จิ้ม …) ----
+  const supBlock = (name, g) => {
+    const rows = g.rows.filter(r => r.category === 'ของใช้');
+    const fl = supAll.filter(r => r.branch_name === name && r.status !== 'ok');
+    if(!rows.length && !fl.length) return '';
+    return `<hr class="d"><div class="xs mut" style="margin-bottom:4px">🧴 ของใช้</div>
+      <div class="chips">${rows.map(r => { const v = supQty(r.label, q(r));
+        return `<span class="chip">${esc(r.label)} <b class="${q(r)<0?'diffneg':(q(r)<=0?'mut':'')}">${v.n}</b>
+          <span class="mut xs">${esc(v.u)}${v.r ? ' ' + esc(v.r) : ''}</span></span>`; }).join('')}</div>
+      ${fl.length ? `<div class="sm" style="margin-top:8px">⚠️ แจ้งมา: ${fl.map(r =>
+        `<span class="${r.status === 'out' ? 'diffneg' : 'diffpos'}">${esc(r.label)} ${r.status === 'out' ? 'หมด' : 'ใกล้หมด'}</span>`).join(' · ')}</div>` : ''}`;
+  };
+
   // ---- หลอดตู้แช่ของแต่ละสาขา ----
   const branchCard = (name, g) => {
     const rows = pick(g.rows, 'ปอเปี๊ยะ', 'packed').filter(r => q(r) > 0);
@@ -2143,6 +2254,7 @@ async function scDash(){
           <b class="${q(r)<=0?'mut':''}">${fmt(q(r))}</b></span>`).join('')}</div>` : ''}
       ${tater.length ? `<div class="chips" style="margin-top:8px">${tater.map(r=>`<span class="chip">เทเทอร์ท็อต
         <b class="${q(r)<=0?'mut':''}">${fmt(q(r))}</b> <span class="mut xs">ถุง</span></span>`).join('')}</div>` : ''}
+      ${supBlock(name, g)}
     </div>`;
   };
 
@@ -2179,6 +2291,7 @@ async function scDash(){
         <div class="chips">${mats.map(r=>`<span class="chip">${esc(r.label)}
           <b class="${q(r)<0?'diffneg':(q(r)<=0?'mut':'')}">${fmt(q(r), r.unit_base==='กก.'?2:0)}</b>
           <span class="mut xs">${esc(r.unit_base)}</span></span>`).join('')}</div>` : ''}
+      ${supBlock(name, g)}
     </div>`;
   };
 
@@ -2193,7 +2306,9 @@ async function scDash(){
         const v = q(r), bpm = num(r.base_per_major)||1;
         let right = `${fmt(v, r.unit_base==='กก.'?2:0)} <span class="mut xs">${esc(r.unit_base)}</span>`;
         // หน่วยใหญ่ใช้เฉพาะของพร้อมขาย · ไส้ให้บอกเป็น กก. ตรง ๆ จะได้ไม่งง
-        if(bpm > 1 && r.level === 'packed') right = `${fmt(Math.floor(v/bpm))} <span class="mut xs">${esc(r.unit_major||'')}</span>` +
+        if(r.category === 'ของใช้'){ const sv = supQty(r.label, v);
+          right = `${sv.n} <span class="mut xs">${esc(sv.u)}${sv.r ? ' ' + esc(sv.r) : ''}</span>`; }
+        else if(bpm > 1 && r.level === 'packed') right = `${fmt(Math.floor(v/bpm))} <span class="mut xs">${esc(r.unit_major||'')}</span>` +
           (v - Math.floor(v/bpm)*bpm ? ` <span class="mut xs">+ ${fmt(v-Math.floor(v/bpm)*bpm)} ${esc(r.unit_base)}</span>` : '');
         html += `<tr><td>${esc(r.label)}</td><td class="n ${v<0?'diffneg':(v===0?'mut':'')}" style="white-space:nowrap">${right}</td></tr>`;
       }

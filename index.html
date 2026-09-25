@@ -237,7 +237,7 @@ async function loadMaster(){
   const [br, it, pk, wr, em, st, ct, cc, rc] = await Promise.all([
     sb.from('branches').select('id,code,name,kind,opened_on,closed_on').order('kind').order('name'),
     sb.from('stock_items').select('id,level,label,unit_base,unit_major,at_factory_only,active,'+
-       'products(id,code,name,sort_order,active,categories(id,code,name,sort_order,unit_base,unit_major))'),
+       'products(id,code,name,sort_order,active,chilled,categories(id,code,name,sort_order,unit_base,unit_major))'),
     sb.from('pack_sizes').select('stock_item_id,base_per_major,effective_from,effective_to'),
     sb.from('waste_reasons').select('id,code,name,sort_order').eq('active',true).order('sort_order'),
     sb.from('employees').select('id,nickname,job_type').eq('active',true).order('nickname'),
@@ -255,7 +255,7 @@ async function loadMaster(){
   const items = it.data.filter(x=>x.active && x.products && x.products.active).map(x=>({
     id:x.id, level:x.level, label:x.label, ub:x.unit_base, um:x.unit_major,
     fac:x.at_factory_only, pcode:x.products.code, pname:x.products.name,
-    psort:x.products.sort_order, cat:x.products.categories.code,
+    psort:x.products.sort_order, cat:x.products.categories.code, chilled:!!x.products.chilled,
     catname:x.products.categories.name, csort:x.products.categories.sort_order,
     bpm: packs.get(x.id) || 1,
   })).sort((a,b)=> a.csort-b.csort || a.psort-b.psort || a.label.localeCompare(b.label,'th'));
@@ -263,10 +263,12 @@ async function loadMaster(){
   S.set = Object.fromEntries(st.data.map(r=>[r.key, r.value]));
   // ความจุตู้แช่ปอเปี๊ยะของแต่ละสาขา (ใช้วาดหลอดเต็ม/ว่าง)
   const rollCat = (ct.data.find(c=>c.code==='ROLL')||{}).id;
-  const cap = new Map();
+  const sauceCat = (ct.data.find(c=>c.code==='SAUCE')||{}).id;
+  const cap = new Map(), capSauce = new Map();   // ตู้แช่ปอเปี๊ยะ · ตู้เย็นซอส (Dip แช่เย็น)
   cc.data.forEach(c=>{
-    if(c.category_id !== rollCat) return;
-    if(d >= c.effective_from && (!c.effective_to || d < c.effective_to)) cap.set(c.branch_id, num(c.capacity_base));
+    if(!(d >= c.effective_from && (!c.effective_to || d < c.effective_to))) return;
+    if(c.category_id === rollCat) cap.set(c.branch_id, num(c.capacity_base));
+    if(c.category_id === sauceCat) capSauce.set(c.branch_id, num(c.capacity_base));
   });
   // สูตร: ปอเปี๊ยะ = กก.ต่อ 1 ชิ้น · Dip = กก.ต่อ 1 รอบผสม
   const rec = new Map();
@@ -276,7 +278,7 @@ async function loadMaster(){
     rec.get(r.output_item_id).push({ input: r.input_item_id, qty: num(r.qty_per_batch) });
   });
   S.M = {
-    cap, cats: ct.data, rec,
+    cap, capSauce, cats: ct.data, rec,
     branches: br.data.filter(b=>!b.closed_on || b.closed_on > d),
     allBranches: br.data,
     items, reasons: wr.data, emps: em.data, flags: [],
@@ -2253,6 +2255,28 @@ async function scDash(){
         `<span class="${r.status === 'out' ? 'diffneg' : 'diffpos'}">${esc(r.label)} ${r.status === 'out' ? 'หมด' : 'ใกล้หมด'}</span>`).join(' · ')}</div>` : ''}`;
   };
 
+  // ---- ซอส: หลอดตู้เย็น (Dip แช่เย็น) เทียบความจุ + ซอสเก็บนอกตู้ ----
+  const isChilled = label => (S.M.items.find(x => x.label === label) || {}).chilled;
+  const dipName = l => l.replace('Dip ','').replace(' 20 กรัม','');
+  const SC = ['var(--s3)','var(--s5)','var(--s4)','var(--s1)'];
+  const sauceBlock = (g, sauces) => {
+    const cold = sauces.filter(r => isChilled(r.label)), room = sauces.filter(r => !isChilled(r.label));
+    const capS = S.M.capSauce.get(g.id) || 0;
+    const sumC = cold.reduce((a, r) => a + Math.max(q(r), 0), 0);
+    const base = capS > 0 ? Math.max(capS, sumC) : (sumC || 1);
+    const pctS = capS > 0 ? Math.round(sumC / capS * 100) : null;
+    const coldPos = cold.filter(r => q(r) > 0);
+    return `<hr class="d">
+      <div class="seg"><span class="sm mut">Dip ในตู้เย็น</span>
+        <span class="p">${fmt(sumC)} <span class="mut xs">/ ${capS ? fmt(capS) : '—'} กระปุก${pctS != null ? ` · <span class="${pctS > 100 ? 'diffneg' : ''}">${pctS}%</span>` : ''}</span></span></div>
+      <div class="meter">${coldPos.map((r, i) => `<i class="${i === coldPos.length - 1 && sumC >= base ? 'last' : ''}" style="width:${(q(r) / base * 100).toFixed(2)}%;background:${SC[i % SC.length]}" title="${esc(r.label)} ${fmt(q(r))}"></i>`).join('')}</div>
+      <div class="chips">${cold.map((r, i) => `<span class="chip"><span class="dot" style="background:${SC[i % SC.length]}"></span>${esc(dipName(r.label))}
+        <b class="${q(r) <= 0 ? 'mut' : ''}">${fmt(q(r))}</b></span>`).join('')}</div>
+      ${room.length ? `<div class="xs mut" style="margin:10px 0 0">Dip นอกตู้เย็น</div>
+        <div class="chips" style="margin-top:4px">${room.map(r => `<span class="chip">${esc(dipName(r.label))}
+          <b class="${q(r) <= 0 ? 'mut' : ''}">${fmt(q(r))}</b></span>`).join('')}</div>` : ''}`;
+  };
+
   // ---- หลอดตู้แช่ของแต่ละสาขา ----
   const branchCard = (name, g) => {
     const rows = pick(g.rows, 'ปอเปี๊ยะ', 'packed').filter(r => q(r) > 0);
@@ -2281,9 +2305,7 @@ async function scDash(){
         <span class="p">${fmt(sum)} <span class="mut xs">/ ${capacity?fmt(capacity):'—'} ชิ้น${pct!=null?` · ${pct}%`:''}</span></span></div>
       <div class="meter">${segs || ''}</div>
       ${rows.length ? `<div class="chips">${chips}</div>` : '<div class="empty">ยังไม่มีปอเปี๊ยะในตู้</div>'}
-      ${sauces.length ? `<hr class="d"><div class="xs mut" style="margin-bottom:4px">Dip (กระปุก)</div>
-        <div class="chips">${sauces.map(r=>`<span class="chip">${esc(r.label.replace('Dip ','').replace(' 20 กรัม',''))}
-          <b class="${q(r)<=0?'mut':''}">${fmt(q(r))}</b></span>`).join('')}</div>` : ''}
+      ${sauces.length ? sauceBlock(g, sauces) : ''}
       ${tater.length ? `<div class="chips" style="margin-top:8px">${tater.map(r=>`<span class="chip">เทเทอร์ท็อต
         <b class="${q(r)<=0?'mut':''}">${fmt(q(r))}</b> <span class="mut xs">ถุง</span></span>`).join('')}</div>` : ''}
       ${supBlock(name, g)}

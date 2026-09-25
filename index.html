@@ -67,8 +67,9 @@ select{-webkit-appearance:none;appearance:none;
 .li .nm small{display:block;color:var(--mut);font-size:11.5px}
 .li input{width:96px;padding:9px;font-size:16px}
 .li .u{width:36px;font-size:12px;color:var(--mut);text-align:left}
-.li.miss input:placeholder-shown{border-color:var(--bad);background:rgba(220,70,70,.08)}
+.li.miss input:placeholder-shown:not(.qr){border-color:var(--bad);background:rgba(220,70,70,.08)}
 .li.miss .nm{color:var(--bad)}
+.sug{color:var(--acc);font-weight:600}
 .pill{display:inline-block;background:var(--card2);border:1px solid var(--line);border-radius:999px;
   padding:3px 11px;font-size:12.5px;color:var(--mut);margin:0 0 0 6px}
 .note{background:rgba(232,115,74,.09);border:1px solid rgba(232,115,74,.3);border-radius:10px;
@@ -926,7 +927,7 @@ function transferView(fromFactory){
     ${dateField('d')}
     <div class="fld"><label class="fl">ส่งไปที่</label>
       <select id="to">${dests.map(b=>`<option value="${b.id}">${b.kind==='factory'?'🏭 ':''}${esc(b.name)}</option>`).join('')}</select></div>
-    ${fromFactory?'<div class="note">ระบบคิดให้จากความจุตู้ × สัดส่วนที่ขายได้จริง · แก้ตัวเลขทับได้ทุกช่อง<br>ส่งไม่เต็มกล่อง ใส่เศษในช่องหลัง + ได้เลย</div>':''}
+    ${fromFactory?'<div class="note">ช่องจำนวน<b>ว่างไว้ให้กรอกเอง</b> · ดู <b>"แนะนำ"</b> ใต้ชื่อของ แล้วใส่ตามที่หยิบใส่จริง<br>ของที่มีเลขแนะนำต้องกรอกทุกช่อง · ไม่ส่งใส่ 0 · ส่งไม่เต็มกล่อง ใส่เศษในช่องหลัง +</div>':''}
     <div class="fld"><label class="fl">เหตุผล${fromFactory?' (ไม่บังคับ)':''}</label><input id="rs" placeholder="${fromFactory?'ส่งประจำวัน':'เช่น ของหมดกะทันหัน'}"></div>
     <div id="plan"><div class="ldg sm">กำลังคิดให้…</div></div>
     <button class="btn" id="save">ออกใบส่งของ</button>
@@ -964,13 +965,16 @@ function transferView(fromFactory){
       if(r.cat!==cat){ cat=r.cat; html += `<div class="card" style="padding:12px 14px;margin:14px 0 8px"><h3 style="margin:0">${esc(cat)}</h3></div>`; }
       const byMajor = r.bpm>1;
       const have = oh(r.id);
-      html += `<div class="li" data-row="${r.id}" data-bpm="${r.bpm}" data-major="${byMajor?1:0}">
+      // เลขแนะนำโชว์ให้ดู แต่ไม่กรอกให้ — คนจัดของต้องพิมพ์เองทุกครั้ง (เจ้าของสั่ง 25 ก.ย.)
+      const sugQ = byMajor ? num(r.sendMajor) : num(r.sendBase);
+      const sug = fromFactory && sugQ > 0;
+      html += `<div class="li" data-row="${r.id}" data-bpm="${r.bpm}" data-major="${byMajor?1:0}"${sug?' data-sug="1"':''}>
         <div class="nm">${esc(r.label)}
-          <small>ที่นี่มี ${esc(boxTxt(have, r.bpm, r.um, r.ub))}${
+          <small>${sug ? `<b class="sug">แนะนำ ${fmt(sugQ)} ${esc(byMajor?r.um:r.ub)}</b> · ` : ''}ที่นี่มี ${esc(boxTxt(have, r.bpm, r.um, r.ub))}${
             r.share!=null?` · สาขาขายได้ ${r.share}%`:''}${
             r.cat==='ของใช้' && r.there!=null ? ` · สาขามี ${esc(boxTxt(r.there, r.bpm, r.um, r.ub))}` : ''}</small></div>
-        <input type="number" inputmode="numeric" min="0" step="1" class="qs"
-          value="${byMajor ? (r.sendMajor??0) : (r.sendBase??0)}" style="width:${byMajor?58:72}px">
+        <input type="number" inputmode="numeric" min="0" step="1" class="qs" placeholder=" "
+          value="" style="width:${byMajor?58:72}px">
         <div class="u">${esc(byMajor?r.um:r.ub)}</div>
         ${byMajor?`<span class="plus">+</span>
         <input type="number" inputmode="numeric" min="0" step="1" class="qr" placeholder="0" style="width:58px">
@@ -978,7 +982,7 @@ function transferView(fromFactory){
       </div>`;
     }
     $('#plan').innerHTML = html;
-    $('#plan').oninput = tally;
+    $('#plan').oninput = e=>{ const li = e.target.closest('.li.miss'); if(li && e.target.value!=='') li.classList.remove('miss'); tally(); };
     tally();
   };
   const tally = ()=>{
@@ -988,7 +992,7 @@ function transferView(fromFactory){
       const rq = li.querySelector('.qr');
       const q = num(li.querySelector('.qs').value) * (byM?bpm:1) + (rq?num(rq.value):0);
       const have = oh(li.dataset.row);
-      li.style.opacity = q>0?1:.55;
+      li.style.opacity = (q>0 || li.dataset.sug) ? 1 : .55;
       li.querySelector('.qs').style.borderColor = q>have ? 'var(--bad)' : '';
       if(rq) rq.style.borderColor = q>have ? 'var(--bad)' : '';
       if(q>have) short.push(li.querySelector('.nm').childNodes[0].textContent.trim());
@@ -1008,6 +1012,18 @@ function transferView(fromFactory){
   drawPlan(); drawOut();
 
   $('#save').onclick = async e=>{
+    // ของที่มีเลขแนะนำ ต้องกรอกเอง (ไม่ส่ง = 0) — กันกดผ่านโดยไม่ได้ดู
+    const blank = [...document.querySelectorAll('#plan .li[data-sug]')].filter(li=>{
+      const rq = li.querySelector('.qr');
+      return li.querySelector('.qs').value==='' && !(rq && rq.value!=='');
+    });
+    document.querySelectorAll('#plan .li.miss').forEach(li=>li.classList.remove('miss'));
+    if(blank.length){
+      blank.forEach(li=>li.classList.add('miss'));
+      blank[0].scrollIntoView({block:'center', behavior:'smooth'});
+      setTimeout(()=>blank[0].querySelector('.qs').focus({preventScroll:true}), 350);
+      return toast(`ยังไม่ได้กรอก ${blank.length} รายการที่มีเลขแนะนำ (กรอบแดง) · ไม่ส่งใส่ 0`,'bad');
+    }
     const lines = [];
     document.querySelectorAll('#plan .li[data-row]').forEach(li=>{
       const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1';

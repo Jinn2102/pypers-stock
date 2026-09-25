@@ -2069,6 +2069,12 @@ async function drawPerf(on){
   const short = s => String(s||'').replace(/^Dip /,'').replace(/ \d+ กรัม$/,'');
   const uTag = u => (u && u !== 'ชิ้น') ? ` <span class="mut xs">${esc(u)}</span>` : '';
 
+  // ขายรวมทั้งวัน (ชิ้น) เทียบปิดวันก่อน · นับเฉพาะของที่มียอดนับวันก่อน
+  const daySold = rows => {
+    const hasPrev = new Set(of(rows,'prev').map(r => r.loc + '|' + r.item));
+    return of(rows,'sold').filter(r => r.qty !== null && r.unit === 'ชิ้น' && hasPrev.has(r.loc + '|' + r.item))
+      .reduce((t, r) => t + num(r.qty), 0);
+  };
   // ---- ตัวเลขใหญ่ 3 ตัว เทียบเมื่อวาน ----
   const tile = (v, y, d, label) => {
     const arrow = (v && y) ? (v > y ? '▲' : v < y ? '▼' : '') : '';
@@ -2078,80 +2084,71 @@ async function drawPerf(on){
   const hero = `<div class="hero">
     ${tile(tot(R,'roll'), tot(Y,'roll'), 0, 'ม้วนได้ · ชิ้น')}
     ${tile(tot(R,'make'), tot(Y,'make'), 1, 'ทำไส้ · กก.')}
-    ${tile(tot(R,'sold','ชิ้น'), tot(Y,'sold','ชิ้น'), 0, 'สาขาขาย · ชิ้น')}
+    ${tile(daySold(R), daySold(Y), 0, 'สาขาขาย · ชิ้น')}
   </div>`;
 
   // ================= สาขา =================
   const sup = (c && !c.error ? c.data || [] : []).filter(r => r.status !== 'ok');
   const supBy = grp(sup, r => r.branch_name);
-  const soldBy = grp(of(R,'sold')), usedBy = grp(of(R,'used')), leftBy = grp(of(R,'left'));
+  const soldBy = grp(of(R,'sold')), usedBy = grp(of(R,'used')), leftBy = grp(of(R,'left')), prevBy = grp(of(R,'prev'));
   const branchLocs = [...new Set([...leftBy.keys(), ...soldBy.keys()])];
 
   const branchCard = loc => {
     const left = (leftBy.get(loc) || []).sort((x, y) => String(x.sort2).localeCompare(String(y.sort2)));
     const moves = [...(soldBy.get(loc) || []), ...(usedBy.get(loc) || [])];
-    // รวมทุกรอบของวัน ต่อของ
-    const sum = new Map();
-    moves.forEach(r => {
-      const s = sum.get(r.item) || { q: 0, known: false, sup: r.section === 'used' };
-      if(r.qty !== null){ s.q += num(r.qty); s.known = true; }
-      sum.set(r.item, s);
+    const prevM = new Map((prevBy.get(loc) || []).map(r => [r.item, r]));
+    // ขาย/ใช้ไป เทียบปิดวันก่อน = ผลรวมทุกรอบของวัน (ยกมา + เข้า − เหลือ) · ไม่มียอดวันก่อน = ตั้งต้น
+    const day = new Map();
+    left.forEach(l => {
+      const pv = prevM.get(l.item);
+      const sup = S.M.items.some(x => x.label === l.item && x.cat === 'SUPPLY');
+      if(!pv){ day.set(l.item, { first: true, sup }); return; }
+      const q = moves.filter(r => r.item === l.item && r.qty !== null).reduce((t, r) => t + num(r.qty), 0);
+      day.set(l.item, { first: false, sup, prev: num(pv.qty), on: pv.extra, sold: q, left: num(l.qty), inq: q + num(l.qty) - num(pv.qty) });
     });
-    const rounds = grp(moves, r => r.sort2);
-    const keys = [...rounds.keys()].sort((x, y) => String(x.split('|')[1]).localeCompare(String(y.split('|')[1])));
-    const lastR = keys.length ? rounds.get(keys[keys.length - 1])[0] : null;
-    const soldPcs = [...sum].filter(([k, s]) => !s.sup && s.known)
-      .reduce((t, [k, s]) => t + ((left.find(l => l.item === k) || {}).unit === 'ชิ้น' ? s.q : 0), 0);
+    const rounds = [...new Set(moves.map(r => r.sort2))].sort((x, y) => String(x.split('|')[1]).localeCompare(String(y.split('|')[1])));
+    const lastR = rounds.length ? moves.find(r => r.sort2 === rounds[rounds.length - 1]) : null;
+    const soldPcs = left.reduce((t, l) => { const d = day.get(l.item); return t + (d && !d.first && !d.sup && l.unit === 'ชิ้น' ? d.sold : 0); }, 0);
+    const prevOn = [...day.values()].filter(d => !d.first).map(d => d.on)[0] || '';
+    const yday = (() => { const x = new Date(on + 'T00:00:00'); x.setDate(x.getDate() - 1);
+      return String(x.getDate()).padStart(2, '0') + '/' + String(x.getMonth() + 1).padStart(2, '0'); })();
 
-    const cell = (s, isSup, label) => {
-      if(!s || !s.known) return `<td class="n mut xs">ตั้งต้น</td>`;
-      if(s.q < 0){
-        const v = isSup ? supQty(label, -s.q) : { n: fmt(-s.q), u: '' };
-        return `<td class="n diffpos" style="white-space:nowrap">เกิน ${v.n}</td>`;
-      }
-      if(isSup){ const v = supQty(label, s.q); return `<td class="n ${s.q ? '' : 'mut'}" style="white-space:nowrap">${v.n}${v.r ? ` <span class="mut xs">${esc(v.r)}</span>` : ''}</td>`; }
-      return `<td class="n ${s.q ? '' : 'mut'}"><b>${fmt(s.q)}</b></td>`;
+    const soldCell = d => {
+      if(!d || d.first) return `<td class="n mut xs">ตั้งต้น</td>`;
+      if(d.sold < 0) return `<td class="n diffpos" style="white-space:nowrap">เกิน ${fmt(-d.sold)}</td>`;
+      return `<td class="n ${d.sold ? '' : 'mut'}"><b>${fmt(d.sold)}</b></td>`;
     };
-    const prod = left.filter(l => !(sum.get(l.item) || {}).sup && !S.M.items.some(x => x.label === l.item && x.cat === 'SUPPLY'));
-    const sups = left.filter(l => !prod.includes(l));
-    const prodRows = prod.map(l => `<tr><td>${esc(short(l.item))}${uTag(l.unit)}</td>
-        ${cell(sum.get(l.item), false, l.item)}<td class="n">${fmt(l.qty)}</td></tr>`).join('');
-    const supRows = sups.map(l => { const v = supQty(l.item, l.qty);
-      return `<tr><td>${esc(l.item)} <span class="mut xs">${esc(v.u)}</span></td>
-        ${cell(sum.get(l.item), true, l.item)}<td class="n" style="white-space:nowrap">${v.n}${v.r ? ` <span class="mut xs">${esc(v.r)}</span>` : ''}</td></tr>`; }).join('');
-
-    // รายรอบ (พับไว้)
-    const roundHtml = keys.map((k, i) => {
-      const rr = rounds.get(k);
-      const [tm, note] = String(rr[0].extra || '|').split('|');
-      const known = rr.filter(r => r.qty !== null && r.section === 'sold' && num(r.qty) !== 0);
-      const pcs = rr.filter(r => r.qty !== null && r.section === 'sold' && r.unit === 'ชิ้น').reduce((t, r) => t + num(r.qty), 0);
-      const first = rr.every(r => r.qty === null);
-      return `<div style="padding:8px 0;border-top:1px solid var(--line)">
-        <div class="seg"><span class="sm">รอบ ${i + 1} · ${esc(tm)}${rr[0].who ? ' · ' + esc(rr[0].who) : ''}</span>
-          <span class="p">${first ? '<span class="mut xs">ตั้งต้น</span>' : fmt(pcs) + ' ชิ้น'}</span></div>
-        ${note && !first ? `<div class="xs mut">${esc(note)}</div>` : ''}
-        ${known.length ? `<div class="xs mut" style="margin-top:3px">${known.map(r =>
-          `<span class="${num(r.qty) < 0 ? 'diffpos' : ''}">${esc(short(r.item))} ${num(r.qty) < 0 ? 'เกิน ' + fmt(-num(r.qty)) : fmt(r.qty)}</span>`).join(' · ')}</div>` : ''}
-      </div>`;
-    }).join('');
+    const prod = left.filter(l => !(day.get(l.item) || {}).sup);
+    const sups = left.filter(l => (day.get(l.item) || {}).sup);
+    const prodRows = prod.map(l => { const d = day.get(l.item) || {};
+      return `<tr><td>${esc(short(l.item))}${uTag(l.unit)}</td>
+        <td class="n mut">${d.first ? '—' : fmt(d.prev)}</td>
+        <td class="n mut">${d.first || !d.inq ? '' : (d.inq > 0 ? '+' : '') + fmt(d.inq)}</td>
+        <td class="n">${fmt(l.qty)}</td>${soldCell(d)}</tr>`; }).join('');
+    const supRows = sups.map(l => { const d = day.get(l.item) || {}; const v = supQty(l.item, l.qty);
+      let used;
+      if(d.first) used = `<span class="mut xs">ตั้งต้น</span>`;
+      else if(d.sold < 0){ const u = supQty(l.item, -d.sold); used = `<span class="diffpos">เกิน ${u.n}</span>`; }
+      else { const u = supQty(l.item, d.sold); used = `${u.n}${u.r ? ` <span class="mut xs">${esc(u.r)}</span>` : ''}`; }
+      return `<tr><td colspan="2">${esc(l.item)} <span class="mut xs">${esc(v.u)}</span></td><td></td>
+        <td class="n" style="white-space:nowrap">${v.n}${v.r ? ` <span class="mut xs">${esc(v.r)}</span>` : ''}</td>
+        <td class="n" style="white-space:nowrap">${used}</td></tr>`; }).join('');
 
     const flags = supBy.get(loc) || [];
-    const multi = (moves.map(r => String(r.extra || '').split('|')[1] || '').find(n => n.startsWith('รวม')) || '');
+    const oldPrev = prevOn && prevOn !== yday;
     return `<div class="card">
       <h3 style="margin-bottom:2px">🏬 ${esc(loc)}</h3>
       <div class="xs mut" style="margin-bottom:8px">${lastR
-        ? `นับ ${keys.length} รอบ · ล่าสุด ${esc(String(lastR.extra || '').split('|')[0])}${lastR.who ? ' ' + esc(lastR.who) : ''}`
-        : 'วันนี้ยังไม่นับ'}${soldPcs ? ` · <b style="color:var(--tx)">ขายรวม ${fmt(soldPcs)} ชิ้น</b>` : ''}</div>
-      ${multi ? `<div class="xs diffpos" style="margin:-4px 0 8px">ยอดขายนี้${esc(multi)} (ไม่ได้นับระหว่างนั้น)</div>` : ''}
+        ? `นับ ${rounds.length} รอบ · ล่าสุด ${esc(String(lastR.extra || '').split('|')[0])}${lastR.who ? ' ' + esc(lastR.who) : ''}`
+        : 'วันนี้ยังไม่นับ'}${soldPcs ? ` · <b style="color:var(--tx)">ขายรวม ${fmt(soldPcs)} ชิ้น</b>` : ''}${prevOn ? ` · เทียบปิด ${esc(prevOn)}` : ''}</div>
+      ${oldPrev ? `<div class="xs diffpos" style="margin:-4px 0 8px">ยกมาจากยอดนับ ${esc(prevOn)} (ไม่ได้นับระหว่างนั้น) · ยอดขายนี้รวมหลายวัน</div>` : ''}
       ${left.length ? `<table>
-        <tr><th></th><th class="n">ขาย</th><th class="n">เหลือ</th></tr>
+        <tr><th></th><th class="n">ยกมา</th><th class="n">เข้า</th><th class="n">เหลือ</th><th class="n">ขาย</th></tr>
         ${prodRows}
-        ${supRows ? `<tr><th style="padding-top:14px">🧴 ของใช้</th><th class="n" style="padding-top:14px">ใช้ไป</th><th class="n" style="padding-top:14px">เหลือ</th></tr>${supRows}` : ''}
+        ${supRows ? `<tr><th colspan="3" style="padding-top:14px">🧴 ของใช้</th><th class="n" style="padding-top:14px">เหลือ</th><th class="n" style="padding-top:14px">ใช้ไป</th></tr>${supRows}` : ''}
       </table>` : ''}
       ${flags.length ? `<div class="sm" style="margin-top:10px">⚠️ แจ้งมา: ${flags.map(r =>
         `<span class="${r.status === 'out' ? 'diffneg' : 'diffpos'}">${esc(r.label)} ${r.status === 'out' ? 'หมด' : 'ใกล้หมด'}</span>`).join(' · ')}</div>` : ''}
-      ${keys.length > 1 ? `<details style="margin-top:10px"><summary class="sm" style="cursor:pointer;color:var(--acc)">ดูแยกรายรอบ (${keys.length} รอบ)</summary>${roundHtml}</details>` : ''}
     </div>`;
   };
 
@@ -2218,10 +2215,10 @@ async function drawPerf(on){
     + (wasteHtml ? `<div class="card"><h3>🗑️ ของเสีย</h3>${wasteHtml}</div>` : '')
     + `<div class="card xs mut" style="line-height:1.7">
         <b style="color:var(--tx)">อ่านตัวเลขยังไง</b><br>
-        <b>ขาย</b> = ของที่ออกจากร้านไประหว่างการนับ (รวมทุกรอบของวัน) · ตอนนี้ยังรวมของหายด้วย เพราะยอด POS ยังไม่เข้าระบบ<br>
-        <b>เหลือ</b> = ที่นับได้ครั้งล่าสุดของวันนั้น<br>
+        <b>ยกมา</b> = ยอดนับปิดวันก่อน · <b>เข้า</b> = รับของ − ของเสีย − ส่งออก ในวันนั้น · <b>เหลือ</b> = ยอดนับล่าสุดของวันนั้น<br>
+        <b>ขาย</b> = ยกมา + เข้า − เหลือ (เทียบกับวันก่อน นับวันละกี่รอบก็ได้ผลเท่าเดิม) · ตอนนี้ยังรวมของหายด้วย เพราะยอด POS ยังไม่เข้าระบบ<br>
         <b class="diffpos">เกิน</b> = นับได้มากกว่าที่ควรมี → มักเป็นของเข้าที่ยังไม่กดรับ หรือนับผิด<br>
-        <b>ตั้งต้น</b> = นับครั้งแรก ยังไม่มีอะไรให้เทียบ<br>
+        <b>ตั้งต้น</b> = ยังไม่มียอดนับวันก่อน ไม่มีอะไรให้เทียบ · วันถัดไปเริ่มเห็นยอดขาย<br>
         ของใช้นับเป็นแพ็กที่ยังไม่เปิด · <b>ใช้ไป</b> = จำนวนแพ็กที่ถูกเปิดใช้
       </div>`
     + (canEditFlags ? `<button class="btn gh sm2" id="flagAdm" style="margin-bottom:24px">แก้รายการ "ของอื่นที่ใกล้หมด" ที่ให้สาขาเช็ก</button>` : '');

@@ -929,7 +929,7 @@ function transferView(fromFactory){
     ${dateField('d')}
     <div class="fld"><label class="fl">ส่งไปที่</label>
       <select id="to">${dests.map(b=>`<option value="${b.id}">${b.kind==='factory'?'🏭 ':''}${esc(b.name)}</option>`).join('')}</select></div>
-    ${fromFactory?'<div class="note">ช่องจำนวน<b>ว่างไว้ให้กรอกเอง</b> · ดู <b>"แนะนำ"</b> ใต้ชื่อของ แล้วใส่ตามที่หยิบใส่จริง<br>ของที่มีเลขแนะนำต้องกรอกทุกช่อง · ไม่ส่งใส่ 0 · ส่งไม่เต็มกล่อง ใส่เศษในช่องหลัง +</div>':''}
+    ${fromFactory?'<div class="note">ช่องจำนวน<b>ว่างไว้ให้กรอกเอง</b> · ดู <b>"แนะนำ"</b> ใต้ชื่อของ แล้วใส่ตามที่หยิบใส่จริง<br>ของที่ไม่ส่ง เว้นว่างได้ · ส่งไม่เต็มกล่อง ใส่เศษในช่องหลัง +</div>':''}
     <div class="fld"><label class="fl">เหตุผล${fromFactory?' (ไม่บังคับ)':''}</label><input id="rs" placeholder="${fromFactory?'ส่งประจำวัน':'เช่น ของหมดกะทันหัน'}"></div>
     <div id="plan"><div class="ldg sm">กำลังคิดให้…</div></div>
     <button class="btn" id="save">ออกใบส่งของ</button>
@@ -1014,19 +1014,7 @@ function transferView(fromFactory){
   drawPlan(); drawOut();
 
   $('#save').onclick = async e=>{
-    // ของที่มีเลขแนะนำ ต้องกรอกเอง (ไม่ส่ง = 0) — กันกดผ่านโดยไม่ได้ดู
-    const blank = [...document.querySelectorAll('#plan .li[data-sug]')].filter(li=>{
-      const rq = li.querySelector('.qr');
-      return li.querySelector('.qs').value==='' && !(rq && rq.value!=='');
-    });
-    document.querySelectorAll('#plan .li.miss').forEach(li=>li.classList.remove('miss'));
-    if(blank.length){
-      blank.forEach(li=>li.classList.add('miss'));
-      blank[0].scrollIntoView({block:'center', behavior:'smooth'});
-      setTimeout(()=>blank[0].querySelector('.qs').focus({preventScroll:true}), 350);
-      return toast(`ยังไม่ได้กรอก ${blank.length} รายการที่มีเลขแนะนำ (กรอบแดง) · ไม่ส่งใส่ 0`,'bad');
-    }
-    const lines = [];
+    const lines = [], slip = [];
     document.querySelectorAll('#plan .li[data-row]').forEach(li=>{
       const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1';
       const rq = li.querySelector('.qr');
@@ -1035,6 +1023,9 @@ function transferView(fromFactory){
       const have = oh(li.dataset.row);
       const sent = Math.min(want, have);
       lines.push({ item: li.dataset.row, sent, short: Math.max(0, want-sent) });
+      const it = item(li.dataset.row) || {};
+      slip.push({ label: it.label || li.querySelector('.nm').childNodes[0].textContent.trim(), cat: it.catname || '',
+                  bpm, um: it.um || '', ub: it.ub || '', sent, short: Math.max(0, want-sent) });
     });
     if(!lines.length) return toast('ยังไม่ได้ใส่จำนวน','bad');
     if(!fromFactory && !$('#rs').value.trim()) return toast('ส่งของออกจากสาขา ต้องใส่เหตุผล','bad');
@@ -1047,8 +1038,50 @@ function transferView(fromFactory){
     if(error) return toast(errMsg(error),'bad');
     const doc = (data && data[0] && data[0].doc_no) || '';
     toast(`ออกใบส่งของ ${doc} แล้ว · ${lines.length} รายการ`,'ok');
+    const toName = $('#to').selectedOptions[0].textContent.replace('🏭 ','').trim();
     await loadOnHand(S.loc.id);
     drawPlan(); drawOut();
+    shareSlip(slipText({ doc, from: S.loc.name, to: toName, on: $('#d').value, by: S.me.nickname, lines: slip }), doc);
+  };
+}
+
+/* ---------- ใบส่งของ → ส่งใน LINE (เจ้าของสั่ง 25 ก.ย.: มีจำนวน · สาขาเช็กว่าได้ครบไหม) ---------- */
+function slipText(s){
+  const d = s.on ? new Date(s.on+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'}) : '';
+  let t = `📦 ใบส่งของ ${s.doc}\n${s.from} → ${s.to}\n${d} · ออกโดย ${s.by}\n`;
+  if(s.lines){
+    let cat = null;
+    s.lines.forEach(l=>{
+      if(l.cat !== cat){ cat = l.cat; t += `\n${cat}\n`; }
+      t += `• ${l.label}  ${boxTxt(l.sent, l.bpm, l.um, l.ub)}\n`;
+    });
+    const sh = s.lines.filter(l=>l.short>0);
+    if(sh.length) t += `\n⚠️ ค้างส่ง (ของไม่พอ): ${sh.map(l=>`${l.label} ${boxTxt(l.short, l.bpm, l.um, l.ub)}`).join(' · ')}\n`;
+    t += `\nรวม ${s.lines.length} รายการ\n`;
+  } else if(s.summary){
+    t += `\n${s.summary}\n`;
+  }
+  t += `\n👉 ของถึงแล้ว เปิดแอป กด "รับของ" แล้วเช็กทีละรายการว่าได้ครบไหม`;
+  return t;
+}
+function shareSlip(text, doc){
+  const wrap = document.createElement('div');
+  wrap.className = 'sheet';
+  wrap.innerHTML = `<div class="sheetbox">
+    <h3 style="margin:0 0 6px">ส่งใบ ${esc(doc)} ใน LINE</h3>
+    <pre class="slip" style="white-space:pre-wrap;font-family:inherit;font-size:13.5px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;max-height:46vh;overflow:auto;margin:0 0 12px">${esc(text)}</pre>
+    <a class="btn" id="sl" style="background:#06C755;text-align:center;text-decoration:none" target="_blank" rel="noopener"
+       href="https://line.me/R/share?text=${encodeURIComponent(text)}">ส่งใน LINE</a>
+    <button class="btn gh sm2" id="sc" style="margin-top:8px">คัดลอกข้อความ</button>
+    <button class="btn gh sm2" id="sx" style="margin-top:8px">ปิด</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = ()=>wrap.remove();
+  wrap.onclick = e => { if(e.target===wrap) close(); };
+  wrap.querySelector('#sx').onclick = close;
+  wrap.querySelector('#sc').onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(text); toast('คัดลอกแล้ว · ไปวางในแชท LINE ได้เลย','ok'); }
+    catch(e){ toast('คัดลอกไม่ได้ · กดค้างที่ข้อความแล้วเลือกคัดลอก','bad'); }
   };
 }
 
@@ -1072,11 +1105,17 @@ async function loadOutbound(on){
           : r.received_at ? `ปลายทางรับแล้ว ${hhmm(r.received_at)} · ยกเลิกไม่ได้`
           : `ออกโดย ${esc(r.issued_by||'')} · ยังไม่มีใครรับ`}</span>
       </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+      ${!r.voided_at?`<button class="btn sm2" style="width:auto;padding:8px 12px;background:#06C755" data-share="${r.id}">ส่ง LINE</button>`:''}
       ${r.can_void?`<button class="btn gh sm2" style="width:auto;padding:8px 12px" data-void="${r.id}" data-doc="${esc(r.doc_no)}">ยกเลิก</button>`:''}
+      </div>
     </div>`).join('')}
     <div class="xs mut" style="margin-top:8px">ยกเลิกแล้วของกลับเข้าสต๊อกที่นี่ทันที · ใบเก่ายังเก็บไว้ ไม่ได้ลบทิ้ง</div>
   </div>`;
   box.onclick = e => {
+    const sh = e.target.closest('[data-share]');
+    if(sh){ const r = rows.find(x=>x.id===sh.dataset.share);
+      return shareSlip(slipText({ doc:r.doc_no, from:S.loc.name, to:r.to_name, on:r.issued_on, by:r.issued_by||'', summary:r.summary||'' }), r.doc_no); }
     const b = e.target.closest('[data-void]'); if(!b) return;
     askVoid(b.dataset.void, b.dataset.doc, on);
   };
@@ -1209,29 +1248,51 @@ async function scRecv(){
 }
 function recvDetail(t){
   app.innerHTML = header('รับของ · '+t.doc_no, 'จาก '+t.from_name, scRecv) + `<main>
-    <div class="note">นับของจริงที่ได้รับ · ถ้าตรงตามใบ ไม่ต้องแก้</div>
+    <div class="note">เช็กของจริงทีละรายการ · ได้ครบตามใบ กด <b>ครบ</b> · ได้ไม่ครบ กด <b>ไม่ครบ</b> แล้วใส่จำนวนที่ได้จริง</div>
     <div class="card"><div class="lst">
     ${t.lines.map(l=>{
       const bpm = item(l.item) ? num(item(l.item).bpm) : 1;
       const byM = bpm>1, sent = num(l.sent);
-      const M = byM ? Math.floor(sent/bpm) : 0, rest = byM ? +(sent - M*bpm).toFixed(3) : sent;
-      return `<div class="li" data-line="${l.line}" data-bpm="${bpm}" data-major="${byM?1:0}">
-        <div class="nm">${esc(l.label)}<small>ตามใบ ${esc(boxTxt(sent, bpm, l.major||'', l.unit))}${
+      return `<div class="li" data-line="${l.line}" data-bpm="${bpm}" data-major="${byM?1:0}" data-sent="${sent}" style="flex-wrap:wrap">
+        <div class="nm">${esc(l.label)}<small>ส่งมา <b>${esc(boxTxt(sent, bpm, l.major||'', l.unit))}</b>${
           num(l.short)>0?` · ค้างส่ง ${fmt(l.short)}`:''}</small></div>
-        ${byM?`<input type="number" inputmode="numeric" step="1" min="0" class="rM" value="${M}" style="width:58px">
-        <div class="u">${esc(l.major||'')}</div><span class="plus">+</span>`:''}
-        <input type="number" inputmode="decimal" step="any" min="0" class="rq" value="${rest}" style="width:${byM?58:72}px">
-        <div class="u">${esc(l.unit)}</div>
+        <div class="tri"><button type="button" data-v="ok">ครบ</button><button type="button" data-v="out">ไม่ครบ</button></div>
+        <div class="rx" style="flex-basis:100%;display:none;align-items:center;gap:8px;justify-content:flex-end;margin-top:8px">
+          <span class="sm mut">ได้จริง</span>
+          ${byM?`<input type="number" inputmode="numeric" step="1" min="0" class="rM" placeholder=" " style="width:58px">
+          <div class="u">${esc(l.major||'')}</div><span class="plus">+</span>`:''}
+          <input type="number" inputmode="decimal" step="any" min="0" class="rq" placeholder=" " style="width:${byM?58:72}px">
+          <div class="u">${esc(l.unit)}</div>
+        </div>
       </div>`;}).join('')}
     </div></div>
     <button class="btn" id="save">ยืนยันรับของ</button>
   </main>`;
   wire(scRecv);
+  app.querySelector('main').addEventListener('click', e=>{
+    const b = e.target.closest('.tri button'); if(!b) return;
+    const li = b.closest('.li[data-line]'); li.dataset.v = b.dataset.v; li.classList.remove('miss');
+    li.querySelectorAll('.tri button').forEach(x=>x.classList.toggle('on', x===b));
+    const rx = li.querySelector('.rx'); rx.style.display = b.dataset.v==='out' ? 'flex' : 'none';
+    if(b.dataset.v==='out') setTimeout(()=>{ const i = rx.querySelector('input'); if(i) i.focus(); }, 50);
+  });
+  app.querySelector('main').addEventListener('input', e=>{ const li = e.target.closest('.li.miss'); if(li) li.classList.remove('miss'); });
   $('#save').onclick = async e=>{
-    const lines = [...document.querySelectorAll('.li[data-line]')].map(li=>{
+    const all = [...document.querySelectorAll('.li[data-line]')];
+    all.forEach(li=>li.classList.remove('miss'));
+    // ทุกรายการต้องเช็ก: ครบ หรือ ไม่ครบ + ใส่จำนวนจริง
+    const bad = all.filter(li=> !li.dataset.v || (li.dataset.v==='out' &&
+      [...li.querySelectorAll('.rx input')].every(i=>i.value==='')));
+    if(bad.length){
+      bad.forEach(li=>li.classList.add('miss'));
+      bad[0].scrollIntoView({block:'center', behavior:'smooth'});
+      return toast(`ยังไม่ได้เช็ก ${bad.length} รายการ · กด ครบ หรือ ไม่ครบ (ไม่ครบต้องใส่จำนวนที่ได้จริง)`,'bad');
+    }
+    const lines = all.map(li=>{
       const bpm = num(li.dataset.bpm), mEl = li.querySelector('.rM');
       return { line: li.dataset.line,
-               received: (mEl?num(mEl.value)*bpm:0) + num(li.querySelector('.rq').value) };
+               received: li.dataset.v==='ok' ? num(li.dataset.sent)
+                 : (mEl?num(mEl.value)*bpm:0) + num(li.querySelector('.rq').value) };
     });
     busy(e.target,true);
     const { error } = await sb.rpc('fn_receive_transfer',{ p_transfer:t.id, p_lines:lines });

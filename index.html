@@ -175,6 +175,7 @@ const num = v => { const n = parseFloat(String(v).replace(/,/g,'')); return isFi
 const fmt = (n,d=0) => (Math.round(num(n)*10**d)/10**d).toLocaleString('th-TH',{maximumFractionDigits:d});
 // "พอขายอีกกี่วัน" = ที่สาขาเหลือ ÷ ขายเฉลี่ยต่อวันจาก POS · เทียบรอบส่งหน้า (วันจันทร์) — ความจริง ไม่ใช่คำแนะนำ
 const ddmm = s => s ? String(s).slice(8,10)+'/'+String(s).slice(5,7) : '';
+const dnext = s => s ? ['อา.','จ.','อ.','พ.','พฤ.','ศ.','ส.'][new Date(String(s).slice(0,10)+'T00:00:00').getDay()] + ' ' + ddmm(s) : '';
 const rwShort = l => String(l||'').replace('Dip ','').replace(' 20 กรัม','');
 async function loadRunway(){
   try{ const { data, error } = await sb.rpc('fn_runway', { p_as_of: today() }); return error ? [] : (data||[]); }catch(e){ return []; }
@@ -975,7 +976,7 @@ function transferView(fromFactory){
       const rw = (await loadRunway()).filter(x=>x.branch_id===to);
       rw.forEach(x=>rwMap.set(x.stock_item_id, x));
       const hot = rwHot(rw);
-      if(hot.length) html += `<div class="note err" id="rwhot" style="margin-top:10px">🚨 <b>อาจหมดก่อนรอบส่งหน้า (จ. ${ddmm(hot[0].next_delivery)})</b><br>${
+      if(hot.length) html += `<div class="note err" id="rwhot" style="margin-top:10px">🚨 <b>อาจหมดก่อนรอบส่งหน้า (${dnext(hot[0].next_delivery)})</b><br>${
         hot.map(rwLine).join('<br>')}<div class="xs" style="margin-top:6px">คิดจาก: ที่สาขาเหลือ (นับ ${ddmm(hot[0].counted_on)}) ÷ ขายเฉลี่ยต่อวันจาก POS</div></div>`;
     }
     for(const r of rows){
@@ -2285,8 +2286,8 @@ async function scDash(){
     const rw = rwAll.filter(x=>x.branch_id===id);
     if(!rw.length) return '';
     const hot = rwHot(rw);
-    if(!hot.length) return `<div class="xs mut" style="margin:6px 0 2px">✓ ทุกตัวพอขายถึงรอบส่ง จ. ${ddmm(rw[0].next_delivery)}</div>`;
-    return `<div class="note err rw" style="margin:8px 0 4px">🚨 <b>อาจหมดก่อนรอบส่ง จ. ${ddmm(hot[0].next_delivery)}</b><br>${hot.map(rwLine).join('<br>')}</div>`;
+    if(!hot.length) return `<div class="xs mut" style="margin:6px 0 2px">✓ ทุกตัวพอขายถึงรอบส่ง ${dnext(rw[0].next_delivery)}</div>`;
+    return `<div class="note err rw" style="margin:8px 0 4px">🚨 <b>อาจหมดก่อนรอบส่ง ${dnext(hot[0].next_delivery)}</b><br>${hot.map(rwLine).join('<br>')}</div>`;
   };
   let gppMap = new Map();
   try{
@@ -2468,7 +2469,7 @@ async function scDash(){
         <div class="t"><b>${fmt(totSauce)}</b><span>Dip (กระปุก)</span></div>
       </div>
       ${rwAll.length ? (()=>{ const n = rwAll.filter(x=>x.level==='red').length;
-        return `<div class="xs ${n?'diffneg':'mut'}" style="margin:0 0 10px">${n ? `🚨 ${n} รายการอาจหมดก่อนรอบส่ง จ. ${ddmm(rwAll[0].next_delivery)} (ดูในการ์ดสาขา)` : `✓ ทุกสาขาพอขายถึงรอบส่ง จ. ${ddmm(rwAll[0].next_delivery)}`}
+        return `<div class="xs ${n?'diffneg':'mut'}" style="margin:0 0 10px">${n ? `🚨 ${n} รายการอาจหมดก่อนรอบส่ง ${dnext(rwAll[0].next_delivery)} (ดูในการ์ดสาขา)` : `✓ ทุกสาขาพอขายถึงรอบส่ง ${dnext(rwAll[0].next_delivery)}`}
           <br><span class="mut">"พอขาย" = ที่เหลือตอนนับล่าสุด ÷ ขายเฉลี่ยต่อวันจาก POS (ถึง ${ddmm(rwAll.map(x=>x.rate_to).sort().pop())})</span></div>`; })() : ''}
       <div class="tabs">
         <button data-m="pic" class="${mode==='pic'?'on':''}">แบบรูป</button>

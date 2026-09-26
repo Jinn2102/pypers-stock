@@ -2357,7 +2357,6 @@ async function scDash(){
   const { data, error } = await sb.rpc('fn_overview',{ p_as_of: today() });
   if(error){ app.querySelector('main').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
 
-  // "ไส้ x กก. = กี่ชิ้น" ต้องมาจากที่ม้วนได้จริงเท่านั้น · ยังไม่เคยม้วน = ไม่บอก
   let supAll = [];
   try{ const f = await sb.rpc('fn_supply_status', {}); if(!f.error) supAll = f.data || []; }catch(e){}
   const rwAll = await loadRunway();
@@ -2368,10 +2367,28 @@ async function scDash(){
     if(!hot.length) return `<div class="xs mut" style="margin:6px 0 2px">✓ ทุกตัวพอขายถึงรอบส่ง ${dnext(rw[0].next_delivery)}</div>`;
     return `<div class="note err rw" style="margin:8px 0 4px">🚨 <b>อาจหมดก่อนรอบส่ง ${dnext(hot[0].next_delivery)}</b><br>${hot.map(rwLine).join('<br>')}</div>`;
   };
-  let gppMap = new Map();
+  // ไส้ x กก. ≈ กี่ชิ้น: ยึด 20 ก./ชิ้นทุกไส้ (เจ้าของสั่ง 26 ก.ย.)
+  const GPP = 20;
+  // สูตรทำไส้ (ต่อ 1 สูตร) · เฉพาะวัตถุดิบที่ตัดสต๊อก
+  let brecs = [];
   try{
-    const g = await sb.rpc('fn_gram_per_piece');
-    (g.data||[]).forEach(r=>{ if(num(r.g_per_piece)>0) gppMap.set(r.label, num(r.g_per_piece)); });
+    const [br, bl] = await Promise.all([
+      sb.from('batch_recipes').select('id,output_item_id,net_kg,effective_from,effective_to'),
+      sb.from('batch_recipe_lines').select('batch_recipe_id,input_item_id,qty_per_batch')]);
+    const d0 = today(), latest = new Map();
+    (br.data||[]).filter(r=> d0 >= r.effective_from && (!r.effective_to || d0 < r.effective_to))
+      .forEach(r=>{ const o = latest.get(r.output_item_id); if(!o || r.effective_from > o.effective_from) latest.set(r.output_item_id, r); });
+    brecs = [...latest.values()].map(r=>({ out:r.output_item_id, net:num(r.net_kg),
+      lines:(bl.data||[]).filter(l=>l.batch_recipe_id===r.id).map(l=>({ input:l.input_item_id, qty:num(l.qty_per_batch) })).filter(l=>l.qty>0) }))
+      .filter(r=>r.lines.length);
+  }catch(e){}
+  // ที่ระบบหักให้เองตอนม้วน (แป้ง/ชีส ต่อ 1 ชิ้น)
+  let autoDed = [];
+  try{ const ad = await sb.from('auto_deductions').select('input_item_id,qty_per_output,effective_from,effective_to');
+    const d0 = today(), m = new Map();
+    (ad.data||[]).filter(r=> d0 >= r.effective_from && (!r.effective_to || d0 < r.effective_to))
+      .forEach(r=> m.set(r.input_item_id, Math.max(m.get(r.input_item_id)||0, num(r.qty_per_output))));
+    autoDed = [...m.entries()].map(([input, qty])=>({ input, qty })).filter(l=>l.qty>0);
   }catch(e){}
   const FLAV = ['TRUFFLE','SPINACH','PESTO','TOMYUM','BEEF','ONION'];   // ลำดับสีคงที่ ห้ามสลับ
   const colOf = code => { const i = FLAV.indexOf(code); return i >= 0 ? `var(--s${i+1})` : 'var(--mut)'; };
@@ -2493,9 +2510,8 @@ async function scDash(){
       <div class="xs mut" style="margin-bottom:2px">ไส้ในคลัง</div>
       ${fills.length ? fills.map(r=>{
           const nm = r.label.replace('ไส้','');
-          const g = gppMap.get(nm);
           return bar(nm, pcodeOf(nm) || '', q(r), maxF, 'กก.',
-            g ? ` <span class="mut">(~${fmt(q(r)*1000/g)} ชิ้น)</span>` : '');
+            q(r) > 0 ? ` <span class="mut">(~${fmt(q(r)*1000/GPP)} ชิ้น)</span>` : '');
         }).join('') : '<div class="empty">ยังไม่มีไส้ในคลัง</div>'}
       <hr class="d">
       <div class="xs mut" style="margin-bottom:2px">ปอเปี๊ยะพร้อมส่ง</div>
@@ -2504,18 +2520,57 @@ async function scDash(){
           return bar(r.label, pcodeOf(r.label), q(r), maxP, 'ชิ้น',
             ` <span class="mut">(${fmt(Math.floor(q(r)/bpm))} ${esc(r.unit_major||'')})</span>`);
         }).join('') : '<div class="empty">ยังไม่มีของพร้อมส่ง</div>'}
-      ${mats.length ? `<hr class="d"><div class="xs mut" style="margin-bottom:4px">วัตถุดิบ</div>
-        <div class="chips">${mats.map(r=>`<span class="chip">${esc(r.label)}
-          <b class="${q(r)<0?'diffneg':(q(r)<=0?'mut':'')}">${fmt(q(r), r.unit_base==='กก.'?2:0)}</b>
-          <span class="mut xs">${esc(r.unit_base)}</span></span>`).join('')}</div>` : ''}
+      ${makeBlock(g, mats)}
       ${supBlock(name, g)}
     </div>`;
   };
 
+  // ---- โรงงาน: วัตถุดิบที่มี ทำอะไรได้อีกกี่สูตร / กี่รอบ (คิดจากสูตรในระบบ · ความจริงล้วน ไม่ใช่คำแนะนำ) ----
+  const makeBlock = (g, mats) => {
+    const fq = new Map(g.rows.map(r=>[r.label, q(r)]));
+    const itm = id => S.M.items.find(x=>x.id===id) || {};
+    const qOf = id => Math.max(fq.get(itm(id).label) || 0, 0);
+    const nfmt = (v, u) => fmt(v, u==='กก.' || u==='ลิตร' ? 2 : 0);
+    // ใช้ทำอะไรได้บ้าง: สูตรไส้ (สูตร) · Dip (รอบผสม) · เทเทอร์ท็อต (ถุง)
+    const jobs = [];
+    brecs.forEach(r=>{ const o = itm(r.out); if(o.label) jobs.push({ name:o.label, per:'สูตร', lines:r.lines, net:r.net, fill:true }); });
+    S.M.rec.forEach((ls, out)=>{ const o = itm(out); if(!o.label || o.level!=='packed') return;
+      const raw = ls.filter(l=>itm(l.input).level==='raw' && l.qty>0); if(!raw.length || raw.length!==ls.length) return;
+      jobs.push({ name:o.label, per: o.cat==='SAUCE' ? 'รอบผสม' : o.ub, lines:raw, jar: o.cat==='SAUCE' }); });
+    if(autoDed.length) jobs.push({ name:'ม้วนปอเปี๊ยะ (แป้ง + ชีส)', per:'ชิ้น', lines:autoDed, roll:true });
+    if(!jobs.length && !mats.length) return '';
+    const calc = j => { const per = j.lines.map(l=>({ ...l, n: Math.floor(qOf(l.input)/l.qty + 1e-9) }));
+      const n = Math.min(...per.map(x=>x.n)); return { per, n }; };
+    const jobHtml = j => { const c = calc(j);
+      const extra = j.fill && c.n > 0 ? ` <span class="mut">(≈${fmt(c.n*j.net,1)} กก. ≈${fmt(c.n*j.net*1000/GPP)} ชิ้น)</span>`
+        : j.jar && c.n > 0 ? ` <span class="mut">(≈${fmt(c.n*j.lines.reduce((a,l)=>a+l.qty,0)*1000/20)} กระปุก)</span>`
+        : j.roll ? ` <span class="mut">· ไส้ในคลังพอ ≈${fmt(Math.max(0, g.rows.filter(r=>r.level==='filling').reduce((a,r)=>a+Math.max(q(r),0),0))*1000/GPP)} ชิ้น</span>` : '';
+      return `<div style="padding:7px 0;border-bottom:1px solid var(--line)">
+        <div><b>${esc(j.name)}</b> ทำได้อีก <b class="${c.n<=0?'diffneg':''}">${fmt(c.n)} ${esc(j.per)}</b>${extra}</div>
+        <div class="xs mut">${c.per.map(x=>`<span class="${x.n===c.n && c.per.length>1 ? 'diffpos' : ''}">${esc(itm(x.input).label)} ${nfmt(qOf(x.input), itm(x.input).ub)} ${esc(itm(x.input).ub||'')} → ${fmt(x.n)}</span>`).join(' · ')}
+          · ใช้ ${c.per.map(x=>`${nfmt(x.qty, itm(x.input).ub)} ${esc(itm(x.input).ub||'')}`).join(' + ')} / ${esc(j.per==='สูตร'||j.per==='รอบผสม'?'1 '+j.per:'1 '+j.per)}</div></div>`; };
+    const fillJobs = jobs.filter(j=>j.fill), otherJobs = jobs.filter(j=>!j.fill);
+    const usedIn = new Map();
+    jobs.forEach(j=> j.lines.forEach(l=>{ if(!usedIn.has(l.input)) usedIn.set(l.input, []);
+      usedIn.get(l.input).push(`${j.name} ${fmt(Math.floor(qOf(l.input)/l.qty + 1e-9))} ${j.per}`); }));
+    const idOfLabel = lb => (S.M.items.find(x=>x.label===lb && x.level==='raw')||{}).id;
+    const matRows = [...mats].sort((a,b)=> (a.category===b.category ? 0 : (a.category==='วัตถุดิบ' ? -1 : 1)) || a.label.localeCompare(b.label,'th'));
+    let cat0 = '';
+    return `
+      ${fillJobs.length ? `<hr class="d"><div class="xs mut" style="margin-bottom:2px">🧪 วัตถุดิบที่มี ทำไส้ได้อีกกี่สูตร</div>${fillJobs.map(jobHtml).join('')}` : ''}
+      ${otherJobs.length ? `<hr class="d"><div class="xs mut" style="margin-bottom:2px">🥫 ผสม Dip / แบ่งถุง ได้อีกกี่รอบ</div>${otherJobs.map(jobHtml).join('')}` : ''}
+      ${(fillJobs.length||otherJobs.length) ? `<div class="xs mut" style="margin-top:6px">คิดจากสูตรในระบบ · นับเฉพาะวัตถุดิบที่ตัดสต๊อก · <span class="diffpos">สีส้ม</span> = ตัวที่หมดก่อน · แต่ละบรรทัดคิดแยกกัน วัตถุดิบที่ใช้ร่วมกัน (เช่น มายองเนส ครีม) ใช้ได้ครั้งเดียว</div>` : ''}
+      ${matRows.length ? `<hr class="d"><div class="xs mut" style="margin-bottom:4px">📦 วัตถุดิบทั้งหมด</div><table>${matRows.map(r=>{
+          const hd = r.category!==cat0 ? (cat0=r.category, `<tr><th colspan="2" style="padding-top:8px">${esc(r.category)}</th></tr>`) : '';
+          const u = usedIn.get(idOfLabel(r.label)) || [];
+          return hd + `<tr><td>${esc(r.label)}${u.length ? `<div class="xs mut">พอทำ: ${esc(u.join(' · '))}</div>` : ''}</td>
+            <td class="n ${q(r)<0?'diffneg':(q(r)<=0?'mut':'')}" style="white-space:nowrap">${nfmt(q(r), r.unit_base)} <span class="mut xs">${esc(r.unit_base)}</span></td></tr>`; }).join('')}</table>` : ''}`;
+  };
+
   // ---- ตารางครบทุกรายการ ----
-  const tableView = () => {
+  const tableView = view => {
     let html = '';
-    for(const name of locs){
+    for(const name of locs.filter(n=> view==='fac' ? isFac(n) : !isFac(n))){
       const g = byLoc.get(name); let c2 = '';
       html += `<div class="card"><h3>${g.kind==='factory'?'🏭':(g.kind==='popup'?'⛺':'🏬')} ${esc(name)}</h3><table>`;
       for(const r of g.rows){
@@ -2534,23 +2589,35 @@ async function scDash(){
     return html;
   };
 
-  const picture = () => `
-    ${legend}
-    ${locs.filter(n=>byLoc.get(n).kind==='factory').map(n=>factoryCard(n, byLoc.get(n))).join('')}
-    ${locs.filter(n=>byLoc.get(n).kind!=='factory').map(n=>branchCard(n, byLoc.get(n))).join('')}`;
+  const isFac = n => byLoc.get(n).kind==='factory';
+  const picture = view => view==='fac'
+    ? `${locs.filter(isFac).map(n=>factoryCard(n, byLoc.get(n))).join('')}`
+    : `${legend}${locs.filter(n=>!isFac(n)).map(n=>branchCard(n, byLoc.get(n))).join('')}`;
 
-  const shell = (body, mode) => `
+  // ตัวเลขใหญ่แยกโรงงาน / สาขา
+  const sumBy = (fac, f) => data.filter(r=> (r.branch_kind==='factory')===fac && f(r)).reduce((a,r)=>a+q(r),0);
+  const heroFac = `<div class="hero">
+        <div class="t"><b>${fmt(sumBy(true, r=>r.level==='filling'),1)}</b><span>ไส้ในคลัง (กก.) · ≈${fmt(sumBy(true, r=>r.level==='filling')*1000/GPP)} ชิ้น</span></div>
+        <div class="t"><b>${fmt(sumBy(true, r=>r.category==='ปอเปี๊ยะ' && r.level==='packed'))}</b><span>ปอเปี๊ยะพร้อมส่ง (ชิ้น)</span></div>
+        <div class="t"><b>${fmt(sumBy(true, r=>r.category==='ซอส' && r.level==='packed'))}</b><span>Dip พร้อมส่ง (กระปุก)</span></div>
+      </div>`;
+  const heroBr = `<div class="hero">
+        <div class="t"><b>${fmt(sumBy(false, r=>r.category==='ปอเปี๊ยะ' && r.level==='packed'))}</b><span>ปอเปี๊ยะในสาขา (ชิ้น)</span></div>
+        <div class="t"><b>${fmt(sumBy(false, r=>r.category==='ซอส' && r.level==='packed'))}</b><span>Dip ในสาขา (กระปุก)</span></div>
+        <div class="t"><b>${fmt(locs.filter(n=>!isFac(n)).length)}</b><span>สาขา</span></div>
+      </div>`;
+  const shell = (body, mode, view) => `
     <div class="viz">
-      <div class="xs mut" style="margin-bottom:10px">ณ ${today()} · ตัวเลขนี้คือ "ควรเหลือ" จากทุกการเคลื่อนไหวที่บันทึกไว้</div>
-      <div class="hero">
-        <div class="t"><b>${fmt(totRoll)}</b><span>ปอเปี๊ยะพร้อมขาย (ชิ้น)</span></div>
-        <div class="t"><b>${fmt(totFill,1)}</b><span>ไส้ในคลัง (กก.)</span></div>
-        <div class="t"><b>${fmt(totSauce)}</b><span>Dip (กระปุก)</span></div>
+      <div class="tabs" id="vt" style="margin-bottom:12px">
+        <button data-v="fac" class="${view==='fac'?'on':''}">🏭 ภาพรวมโรงงาน</button>
+        <button data-v="br" class="${view==='br'?'on':''}">🏬 ภาพรวมทุกสาขา</button>
       </div>
-      ${rwAll.length ? (()=>{ const n = rwAll.filter(x=>x.level==='red').length;
+      <div class="xs mut" style="margin-bottom:10px">ณ ${today()} · ตัวเลขนี้คือ "ควรเหลือ" จากทุกการเคลื่อนไหวที่บันทึกไว้</div>
+      ${view==='fac' ? heroFac : heroBr}
+      ${view==='br' && rwAll.length ? (()=>{ const n = rwAll.filter(x=>x.level==='red').length;
         return `<div class="xs ${n?'diffneg':'mut'}" style="margin:0 0 10px">${n ? `🚨 ${n} รายการอาจหมดก่อนรอบส่ง ${dnext(rwAll[0].next_delivery)} (ดูในการ์ดสาขา)` : `✓ ทุกสาขาพอขายถึงรอบส่ง ${dnext(rwAll[0].next_delivery)}`}
           <br><span class="mut">"พอขาย" = ที่เหลือตอนนับล่าสุด ÷ ขายเฉลี่ยต่อวันจาก POS (ถึง ${ddmm(rwAll.map(x=>x.rate_to).sort().pop())})</span></div>`; })() : ''}
-      <div class="tabs">
+      <div class="tabs" id="mt">
         <button data-m="pic" class="${mode==='pic'?'on':''}">แบบรูป</button>
         <button data-m="tab" class="${mode==='tab'?'on':''}">แบบตาราง</button>
       </div>
@@ -2558,13 +2625,14 @@ async function scDash(){
       <div class="xs mut" style="margin:6px 0 20px">ตัวเลขติดลบ = ระบบบันทึกของออกมากกว่าที่เข้า · ให้นับสต๊อกที่นั่นใหม่ แล้วตัวเลขจะกลับมาตรง</div>
     </div>`;
 
-  const paint = mode => {
-    app.querySelector('main').innerHTML = shell(mode==='pic' ? picture() : tableView(), mode);
-    app.querySelector('.tabs').onclick = e=>{
-      const b = e.target.closest('button'); if(b) paint(b.dataset.m);
-    };
+  let view = 'fac', mode = 'pic';
+  try{ const v = localStorage.getItem('dashView'); if(v==='fac' || v==='br') view = v; }catch(e){}
+  const paint = () => {
+    app.querySelector('main').innerHTML = shell(mode==='pic' ? picture(view) : tableView(view), mode, view);
+    $('#mt').onclick = e=>{ const b = e.target.closest('button'); if(b){ mode = b.dataset.m; paint(); } };
+    $('#vt').onclick = e=>{ const b = e.target.closest('button'); if(b){ view = b.dataset.v; try{ localStorage.setItem('dashView', view); }catch(err){} paint(); } };
   };
-  paint('pic');
+  paint();
 }
 </script>
 </body>

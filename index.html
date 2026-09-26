@@ -1473,44 +1473,61 @@ function oilPreview(li){
 
 // ของใช้ที่ยังไม่มีในรายการ → เพิ่มเป็นของใช้ตัวจริง (นับจำนวนจริง · ทุกที่นับทุกวันตั้งแต่ครั้งหน้า)
 const itemHere = (x, bid) => !x.locs || x.locs.includes(bid);
+// เพิ่มรายการที่ยังไม่มี: ของใช้ (ทุกที่) · วัตถุดิบ (เฉพาะโรงงาน) → ขึ้นให้นับเฉพาะที่ที่เพิ่ม · ชื่อซ้ำ = ตัวเดิม
 const SUP_UNITS = ['แพ็ก','ห่อ','ชิ้น','ขวด','กล่อง','ม้วน','ถุง','แกลลอน','กก.'];
-function addSupBox(){
-  return `<button type="button" class="btn gh sm2" id="addSup" style="margin-top:10px">+ เพิ่มของใช้ที่ยังไม่มีในรายการ</button>
-    <div id="asBox" style="display:none;margin-top:10px">
-      <div class="xs mut" style="margin-bottom:6px">พิมพ์ชื่อ + หน่วยที่นับ → กด "เพิ่ม" แล้วกรอกจำนวนในช่องที่ขึ้นมา · ของนี้จะขึ้นให้นับ<b>เฉพาะ${esc(S.loc.name)}</b></div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input id="asN" placeholder="ชื่อของ เช่น ถุงมือยาง" maxlength="60" style="flex:1;min-width:0;width:auto;font-size:15px;text-align:left">
-        <input id="asU" list="asUL" placeholder="หน่วย" maxlength="12" style="width:78px;font-size:15px;text-align:left">
-        <datalist id="asUL">${SUP_UNITS.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
-        <button type="button" class="btn sm2" id="asOk" style="width:auto;padding:10px 14px">เพิ่ม</button>
+const RAW_UNITS = ['กก.','ลิตร','ขวด','ถุง','แพ็ก','กล่อง','กระป๋อง','แผ่น','ชิ้น','ฟอง'];
+function addSupBox(k){
+  const raw = k==='raw';
+  return `<button type="button" class="btn gh sm2" data-addopen="${k}" style="margin-top:10px">+ เพิ่ม${raw?'วัตถุดิบ':'ของใช้'}ที่ยังไม่มีในรายการ</button>
+    <div data-addbox="${k}" style="display:none;margin-top:10px">
+      <div class="xs mut" style="margin-bottom:6px">พิมพ์ชื่อ + หน่วยที่นับ${raw?' + หมวด':''} → กด "เพิ่ม" แล้วกรอกจำนวนในช่องที่ขึ้นมา · ขึ้นให้นับ<b>เฉพาะ${esc(S.loc.name)}</b></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="aN" placeholder="${raw?'ชื่อวัตถุดิบ เช่น เนยจืด':'ชื่อของ เช่น ถุงมือยาง'}" maxlength="60" style="flex:1;min-width:140px;width:auto;font-size:15px;text-align:left">
+        <input class="aU" list="aUL_${k}" placeholder="หน่วย" maxlength="12" style="width:78px;font-size:15px;text-align:left">
+        <datalist id="aUL_${k}">${(raw?RAW_UNITS:SUP_UNITS).map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
+        ${raw?`<select class="aC" style="width:auto;font-size:14px"><option value="MAT">วัตถุดิบ</option><option value="SMAT">วัตถุดิบซอส</option></select>`:''}
+        <button type="button" class="btn sm2" data-addok="${k}" style="width:auto;padding:10px 14px">เพิ่ม</button>
       </div></div>`;
 }
 async function addSupply(btn){
-  const name = $('#asN').value.trim(), unit = $('#asU').value.trim();
-  if(!name) return toast('พิมพ์ชื่อของก่อน','bad');
-  if(!unit) return toast('ใส่หน่วยก่อน เช่น แพ็ก ห่อ ชิ้น','bad');
+  const k = btn.dataset.addok, raw = k==='raw', box = btn.closest('[data-addbox]');
+  const name = box.querySelector('.aN').value.trim(), unit = box.querySelector('.aU').value.trim();
+  const catc = raw ? box.querySelector('.aC').value : 'SUPPLY';
+  if(!name) return toast('พิมพ์ชื่อก่อน','bad');
+  if(!unit) return toast(raw ? 'ใส่หน่วยก่อน เช่น กก. ลิตร ขวด' : 'ใส่หน่วยก่อน เช่น แพ็ก ห่อ ชิ้น','bad');
   const nz = t => String(t||'').replace(/\s+/g,'').toLowerCase();
   const goRow = id => { const li = document.querySelector(`.li[data-item="${id}"]`); if(!li) return false;
     li.scrollIntoView({block:'center', behavior:'smooth'}); const i = li.querySelector('input'); if(i) setTimeout(()=>i.focus({preventScroll:true}),350); return true; };
-  const have = S.M.items.find(it=>it.cat==='SUPPLY' && itemHere(it, S.loc.id) && (nz(it.label)===nz(name) || nz(it.pname)===nz(name)));
+  const same = it => raw ? it.level==='raw' : it.cat==='SUPPLY';
+  const have = S.M.items.find(it=>same(it) && itemHere(it, S.loc.id) && (nz(it.label)===nz(name) || nz(it.pname)===nz(name)));
   if(have && goRow(have.id)) return toast(`"${have.label}" มีช่องนับอยู่แล้ว — กรอกตรงนี้`,'bad');
   busy(btn,true);
-  const { data, error } = await sb.rpc('fn_add_supply', { p_label:name, p_unit:unit, p_branch:S.loc.id });
+  const { data, error } = await sb.rpc('fn_add_item', { p_label:name, p_unit:unit, p_branch:S.loc.id, p_cat:catc });
   busy(btn,false,'เพิ่ม');
   if(error) return toast(errMsg(error),'bad');
   const r = (data||[])[0]; if(!r) return toast('เพิ่มไม่สำเร็จ','bad');
   let x = S.M.items.find(y=>y.id===r.stock_item_id);
   if(!x){
-    const sup = S.M.items.filter(y=>y.cat==='SUPPLY'), base = sup[0] || {};
-    x = { id:r.stock_item_id, level:'packed', label:r.label, ub:r.unit_base, um:null, fac:false,
-      pcode:r.product_code, pname:r.product_name, psort:Math.max(0,...sup.map(y=>y.psort||0))+1, cat:'SUPPLY', chilled:false,
-      catname:base.catname||'ของใช้', csort:base.csort||0, bpm:1, locs:[S.loc.id] };
+    const sib = S.M.items.filter(y=>y.cat===r.cat), base = sib[0] || S.M.items.find(same) || {};
+    x = { id:r.stock_item_id, level:r.level, label:r.label, ub:r.unit_base, um:null, fac:raw,
+      pcode:r.product_code, pname:r.product_name, psort:Math.max(0,...sib.map(y=>y.psort||0))+1, cat:r.cat, chilled:false,
+      catname:base.catname||(raw?'วัตถุดิบ':'ของใช้'), csort:base.csort||0, bpm:1, locs:[S.loc.id] };
     S.M.items.push(x);
   } else if(x.locs && !x.locs.includes(S.loc.id)) x.locs.push(S.loc.id);
-  if(!document.querySelector(`.li[data-item="${x.id}"]`)) $('#supl').insertAdjacentHTML('beforeend', supRow(x));
+  if(!document.querySelector(`.li[data-item="${x.id}"]`)) $(raw ? '#rawl' : '#supl').insertAdjacentHTML('beforeend', raw ? countRow(x) : supRow(x));
   goRow(x.id);
-  $('#asN').value = ''; $('#asU').value = '';
+  box.querySelector('.aN').value = ''; box.querySelector('.aU').value = '';
   toast(r.existed ? `"${r.label}" มีอยู่แล้ว — กรอกจำนวนได้เลย` : `เพิ่ม "${r.label}" แล้ว — กรอกจำนวน (${r.unit_base})`,'ok');
+}
+function countRow(x){
+  const byM = x.bpm>1;
+  return `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}">
+        <div class="nm">${esc(x.label)}${byM?`<small>1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)}</small>`:''}</div>
+        ${byM?`<input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder=" " style="width:72px">
+               <div class="u">${esc(x.um)}</div>`:''}
+        <input type="number" inputmode="decimal" min="0" step="any" class="cm" placeholder=" " style="width:72px">
+        <div class="u">${esc(x.ub)}</div>
+      </div>`;
 }
 function scCount(){
   const fac = S.loc.kind==='factory';
@@ -1526,21 +1543,14 @@ function scCount(){
   for(const [gname, gf] of groups){
     const g = its.filter(gf);
     if(!g.length) continue;
-    const isSup = gname.includes('ของใช้');
+    const isSup = gname.includes('ของใช้'), isRaw = gname==='วัตถุดิบ';
     html += `<div class="card"><h3>${esc(gname)}</h3>${isSup
-      ? `<div class="xs mut" style="margin:-4px 0 8px">นับเฉพาะ<b>แพ็กที่ยังไม่เปิด</b> · แพ็กที่เปิดแล้วไม่ต้องนับ</div>` : ''}<div class="lst"${isSup?' id="supl"':''}>`;
+      ? `<div class="xs mut" style="margin:-4px 0 8px">นับเฉพาะ<b>แพ็กที่ยังไม่เปิด</b> · แพ็กที่เปิดแล้วไม่ต้องนับ</div>` : ''}<div class="lst"${isSup?' id="supl"':(isRaw?' id="rawl"':'')}>`;
     for(const x of g){
       if(isSup){ html += supRow(x); continue; }
-      const byM = x.bpm>1;
-      html += `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}">
-        <div class="nm">${esc(x.label)}${byM?`<small>1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)}</small>`:''}</div>
-        ${byM?`<input type="number" inputmode="numeric" min="0" step="1" class="cM" placeholder=" " style="width:72px">
-               <div class="u">${esc(x.um)}</div>`:''}
-        <input type="number" inputmode="decimal" min="0" step="any" class="cm" placeholder=" " style="width:72px">
-        <div class="u">${esc(x.ub)}</div>
-      </div>`;
+      html += countRow(x);
     }
-    html += `</div>${isSup ? addSupBox() : ''}</div>`;
+    html += `</div>${isSup ? addSupBox('sup') : (isRaw ? addSupBox('raw') : '')}</div>`;
   }
   app.innerHTML = header(title, S.loc.name, viewHome) + `<main>
     <div class="note" id="cmode">นับของจริงที่เห็นตรงหน้า · <b>ต้องกรอกทุกช่อง</b> · ของที่ไม่มี ใส่ 0</div>
@@ -1557,8 +1567,9 @@ function scCount(){
     if(e.target.classList.contains('ckg')) oilPreview(e.target.closest('.li'));
   });
   app.querySelector('main').addEventListener('click', e=>{
-    if(e.target.closest('#addSup')){ $('#asBox').style.display='block'; e.target.closest('#addSup').style.display='none'; $('#asN').focus(); return; }
-    if(e.target.closest('#asOk')) addSupply(e.target.closest('#asOk'));
+    const op = e.target.closest('[data-addopen]');
+    if(op){ const bx = document.querySelector(`[data-addbox="${op.dataset.addopen}"]`); bx.style.display='block'; op.style.display='none'; bx.querySelector('.aN').focus(); return; }
+    const ok = e.target.closest('[data-addok]'); if(ok) addSupply(ok);
   });
   // จำเลขที่พิมพ์ค้างไว้ (หน้าโหลดใหม่ / ปิดแอปไป เลขไม่หาย) · ส่งสำเร็จแล้วล้าง
   const dKey = () => 'cdraft_'+S.loc.id+'_'+$('#d').value;
@@ -2303,7 +2314,7 @@ async function drawPerf(on){
         <b>ตั้งต้น</b> = ยังไม่มียอดนับวันก่อน ไม่มีอะไรให้เทียบ · วันถัดไปเริ่มเห็นยอดขาย<br>
         ของใช้นับเป็นแพ็กที่ยังไม่เปิด · <b>ใช้ไป</b> = จำนวนแพ็กที่ถูกเปิดใช้
       </div>`
-    + (canEditFlags ? `<button class="btn gh sm2" id="flagAdm" style="margin-bottom:24px">แก้รายการของใช้ที่ให้นับ (ชื่อ · หน่วย · ซ่อน)</button>` : '');
+    + (canEditFlags ? `<button class="btn gh sm2" id="flagAdm" style="margin-bottom:24px">แก้รายการของใช้ / วัตถุดิบที่ให้นับ (ชื่อ · หน่วย · ซ่อน)</button>` : '');
   const fa = $('#flagAdm'); if(fa) fa.onclick = flagAdmin;
 }
 
@@ -2313,11 +2324,11 @@ async function flagAdmin(){
   if(error) return toast(errMsg(error),'bad');
   const rows = data || [];
   const dt = t => t ? new Date(t).toLocaleDateString('th-TH',{day:'numeric',month:'short',timeZone:'Asia/Bangkok'}) : '';
-  const s = sheet(`<h3 style="margin:0 0 4px">รายการของใช้ที่ให้นับ</h3>
+  const s = sheet(`<h3 style="margin:0 0 4px">รายการของใช้ / วัตถุดิบที่ให้นับ</h3>
     <div class="xs mut" style="margin-bottom:10px">แก้ชื่อ/หน่วยแล้วกด ✓ · <b>ซ่อน</b> = ไม่ต้องนับอีก (ประวัติยังอยู่ · ถ้าหน้าร้านเพิ่มชื่อเดิมมาอีก จะกลับมาเอง) · หน่วยแก้ได้เฉพาะของที่พนักงานเพิ่ม</div>
     <div style="max-height:58vh;overflow:auto">${rows.map(r=>`<div class="li" data-fid="${r.stock_item_id}" style="${r.active?'':'opacity:.5'}">
       <div class="nm"><input class="fl-n" value="${esc(r.label)}" maxlength="60" style="width:100%;font-size:15px;padding:8px;text-align:left">
-        <small>${r.seeded ? 'ตั้งต้น' : 'เพิ่มโดย ' + esc(r.by_name || '-') + ' · ' + dt(r.added_at)} · นับที่: ${esc(r.locs || 'ทุกที่')}${r.active ? '' : ' · ซ่อนอยู่'}</small></div>
+        <small>${esc(r.catname || '')} · ${r.seeded ? 'ตั้งต้น' : 'เพิ่มโดย ' + esc(r.by_name || '-') + ' · ' + dt(r.added_at)} · นับที่: ${esc(r.locs || 'ทุกที่')}${r.active ? '' : ' · ซ่อนอยู่'}</small></div>
       ${r.seeded ? `<div class="u">${esc(r.unit_base)}</div>` : `<input class="fl-u" value="${esc(r.unit_base)}" maxlength="12" style="width:64px;font-size:14px;padding:8px">`}
       <button class="btn gh sm2" data-a="save" style="width:auto;padding:8px 10px">✓</button>
       <button class="btn gh sm2" data-a="tog" style="width:auto;padding:8px 10px">${r.active ? 'ซ่อน' : 'แสดง'}</button>

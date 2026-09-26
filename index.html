@@ -257,6 +257,10 @@ async function loadMaster(){
     sb.from('recipes').select('output_item_id,input_item_id,qty_per_batch,effective_from,effective_to'),
   ]);
   for(const r of [br,it,pk,wr,em,st,ct,cc,rc]) if(r.error) throw r.error;
+  // ของที่นับเฉพาะบางที่ (ของใช้ที่พนักงานเพิ่มเอง) · ไม่มีแถว = ทุกที่
+  const locsOf = new Map();
+  try{ const il = await sb.from('item_locations').select('stock_item_id,branch_id');
+    (il.data||[]).forEach(r=>{ if(!locsOf.has(r.stock_item_id)) locsOf.set(r.stock_item_id, []); locsOf.get(r.stock_item_id).push(r.branch_id); }); }catch(e){}
 
   const d = today();
   const packs = new Map();
@@ -267,7 +271,7 @@ async function loadMaster(){
     fac:x.at_factory_only, pcode:x.products.code, pname:x.products.name,
     psort:x.products.sort_order, cat:x.products.categories.code, chilled:!!x.products.chilled,
     catname:x.products.categories.name, csort:x.products.categories.sort_order,
-    bpm: packs.get(x.id) || 1,
+    bpm: packs.get(x.id) || 1, locs: locsOf.get(x.id) || null,
   })).sort((a,b)=> a.csort-b.csort || a.psort-b.psort || a.label.localeCompare(b.label,'th'));
 
   S.set = Object.fromEntries(st.data.map(r=>[r.key, r.value]));
@@ -1467,11 +1471,12 @@ function oilPreview(li){
 }
 
 // ของใช้ที่ยังไม่มีในรายการ → เพิ่มเป็นของใช้ตัวจริง (นับจำนวนจริง · ทุกที่นับทุกวันตั้งแต่ครั้งหน้า)
+const itemHere = (x, bid) => !x.locs || x.locs.includes(bid);
 const SUP_UNITS = ['แพ็ก','ห่อ','ชิ้น','ขวด','กล่อง','ม้วน','ถุง','แกลลอน','กก.'];
 function addSupBox(){
   return `<button type="button" class="btn gh sm2" id="addSup" style="margin-top:10px">+ เพิ่มของใช้ที่ยังไม่มีในรายการ</button>
     <div id="asBox" style="display:none;margin-top:10px">
-      <div class="xs mut" style="margin-bottom:6px">พิมพ์ชื่อ + หน่วยที่นับ → กด "เพิ่ม" แล้วกรอกจำนวนในช่องที่ขึ้นมา · ครั้งหน้าทุกสาขาจะนับของนี้ด้วย</div>
+      <div class="xs mut" style="margin-bottom:6px">พิมพ์ชื่อ + หน่วยที่นับ → กด "เพิ่ม" แล้วกรอกจำนวนในช่องที่ขึ้นมา · ของนี้จะขึ้นให้นับ<b>เฉพาะ${esc(S.loc.name)}</b></div>
       <div style="display:flex;gap:8px;align-items:center">
         <input id="asN" placeholder="ชื่อของ เช่น ถุงมือยาง" maxlength="60" style="flex:1;min-width:0;width:auto;font-size:15px;text-align:left">
         <input id="asU" list="asUL" placeholder="หน่วย" maxlength="12" style="width:78px;font-size:15px;text-align:left">
@@ -1486,10 +1491,10 @@ async function addSupply(btn){
   const nz = t => String(t||'').replace(/\s+/g,'').toLowerCase();
   const goRow = id => { const li = document.querySelector(`.li[data-item="${id}"]`); if(!li) return false;
     li.scrollIntoView({block:'center', behavior:'smooth'}); const i = li.querySelector('input'); if(i) setTimeout(()=>i.focus({preventScroll:true}),350); return true; };
-  const have = S.M.items.find(it=>it.cat==='SUPPLY' && (nz(it.label)===nz(name) || nz(it.pname)===nz(name)));
+  const have = S.M.items.find(it=>it.cat==='SUPPLY' && itemHere(it, S.loc.id) && (nz(it.label)===nz(name) || nz(it.pname)===nz(name)));
   if(have && goRow(have.id)) return toast(`"${have.label}" มีช่องนับอยู่แล้ว — กรอกตรงนี้`,'bad');
   busy(btn,true);
-  const { data, error } = await sb.rpc('fn_add_supply', { p_label:name, p_unit:unit });
+  const { data, error } = await sb.rpc('fn_add_supply', { p_label:name, p_unit:unit, p_branch:S.loc.id });
   busy(btn,false,'เพิ่ม');
   if(error) return toast(errMsg(error),'bad');
   const r = (data||[])[0]; if(!r) return toast('เพิ่มไม่สำเร็จ','bad');
@@ -1498,9 +1503,9 @@ async function addSupply(btn){
     const sup = S.M.items.filter(y=>y.cat==='SUPPLY'), base = sup[0] || {};
     x = { id:r.stock_item_id, level:'packed', label:r.label, ub:r.unit_base, um:null, fac:false,
       pcode:r.product_code, pname:r.product_name, psort:Math.max(0,...sup.map(y=>y.psort||0))+1, cat:'SUPPLY', chilled:false,
-      catname:base.catname||'ของใช้', csort:base.csort||0, bpm:1 };
+      catname:base.catname||'ของใช้', csort:base.csort||0, bpm:1, locs:[S.loc.id] };
     S.M.items.push(x);
-  }
+  } else if(x.locs && !x.locs.includes(S.loc.id)) x.locs.push(S.loc.id);
   if(!document.querySelector(`.li[data-item="${x.id}"]`)) $('#supl').insertAdjacentHTML('beforeend', supRow(x));
   goRow(x.id);
   $('#asN').value = ''; $('#asU').value = '';
@@ -1508,7 +1513,7 @@ async function addSupply(btn){
 }
 function scCount(){
   const fac = S.loc.kind==='factory';
-  const its = S.M.items.filter(x=> fac ? true : (!x.fac && x.level==='packed'));
+  const its = S.M.items.filter(x=> (fac ? true : (!x.fac && x.level==='packed')) && itemHere(x, S.loc.id));
   const title = fac ? 'นับสต๊อกโรงงาน' : 'นับสต๊อกประจำวัน';
   let html = '', cat = '';
   const groups = [
@@ -2281,7 +2286,7 @@ async function flagAdmin(){
     <div class="xs mut" style="margin-bottom:10px">แก้ชื่อ/หน่วยแล้วกด ✓ · <b>ซ่อน</b> = ไม่ต้องนับอีก (ประวัติยังอยู่ · ถ้าหน้าร้านเพิ่มชื่อเดิมมาอีก จะกลับมาเอง) · หน่วยแก้ได้เฉพาะของที่พนักงานเพิ่ม</div>
     <div style="max-height:58vh;overflow:auto">${rows.map(r=>`<div class="li" data-fid="${r.stock_item_id}" style="${r.active?'':'opacity:.5'}">
       <div class="nm"><input class="fl-n" value="${esc(r.label)}" maxlength="60" style="width:100%;font-size:15px;padding:8px;text-align:left">
-        <small>${r.seeded ? 'ตั้งต้น' : 'เพิ่มโดย ' + esc(r.by_name || '-') + ' · ' + dt(r.added_at)}${r.active ? '' : ' · ซ่อนอยู่'}</small></div>
+        <small>${r.seeded ? 'ตั้งต้น' : 'เพิ่มโดย ' + esc(r.by_name || '-') + ' · ' + dt(r.added_at)} · นับที่: ${esc(r.locs || 'ทุกที่')}${r.active ? '' : ' · ซ่อนอยู่'}</small></div>
       ${r.seeded ? `<div class="u">${esc(r.unit_base)}</div>` : `<input class="fl-u" value="${esc(r.unit_base)}" maxlength="12" style="width:64px;font-size:14px;padding:8px">`}
       <button class="btn gh sm2" data-a="save" style="width:auto;padding:8px 10px">✓</button>
       <button class="btn gh sm2" data-a="tog" style="width:auto;padding:8px 10px">${r.active ? 'ซ่อน' : 'แสดง'}</button>

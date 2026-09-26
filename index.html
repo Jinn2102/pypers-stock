@@ -1435,6 +1435,7 @@ function supQty(label, base){
   }
   return { n: fmt(v), u: it.ub || '' };
 }
+const byPiece = x => String((S.set||{}).count_by_piece||'').split(',').map(t=>t.trim()).filter(Boolean).includes(x.pcode);
 function supRow(x){
   if(x.pcode==='SUP_OIL'){
     return `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}" data-oil="1" style="flex-wrap:wrap">
@@ -1448,6 +1449,14 @@ function supRow(x){
       </div>
       <div class="xs oilp" style="flex-basis:100%;text-align:right;min-height:0"></div>
     </div>`;
+  }
+  // นับเป็นชิ้น (ตั้งใน settings.count_by_piece) · ทุกใบรวมแพ็กที่เปิดแล้ว
+  if(byPiece(x)){
+    return `<div class="li" data-item="${x.id}" data-bpm="${x.bpm}" data-sup="1" data-piece="1">
+    <div class="nm">${esc(x.label)}<small>นับเป็น${esc(x.ub)} · นับทุก${esc(x.ub)} รวมแพ็กที่เปิดแล้ว${x.bpm>1?` (1 ${esc(x.um)} = ${fmt(x.bpm)} ${esc(x.ub)})`:''}</small></div>
+    <input type="number" inputmode="numeric" min="0" step="1" class="cm" placeholder=" " style="width:72px">
+    <div class="u">${esc(x.ub)}</div>
+  </div>`;
   }
   const byM = x.bpm>1;
   const dec = x.ub==='กก.';
@@ -1545,7 +1554,7 @@ function scCount(){
     if(!g.length) continue;
     const isSup = gname.includes('ของใช้'), isRaw = gname==='วัตถุดิบ';
     html += `<div class="card"><h3>${esc(gname)}</h3>${isSup
-      ? `<div class="xs mut" style="margin:-4px 0 8px">นับเฉพาะ<b>แพ็กที่ยังไม่เปิด</b> · แพ็กที่เปิดแล้วไม่ต้องนับ</div>` : ''}<div class="lst"${isSup?' id="supl"':(isRaw?' id="rawl"':'')}>`;
+      ? `<div class="xs mut" style="margin:-4px 0 8px">นับเฉพาะ<b>แพ็กที่ยังไม่เปิด</b> · แพ็กที่เปิดแล้วไม่ต้องนับ${(()=>{ const pc = g.filter(byPiece); return pc.length ? ` · ยกเว้น <b>${pc.map(x=>esc(x.label)).join(' / ')}</b> นับเป็นชิ้นทุกใบ` : ''; })()}</div>` : ''}<div class="lst"${isSup?' id="supl"':(isRaw?' id="rawl"':'')}>`;
     for(const x of g){
       if(isSup){ html += supRow(x); continue; }
       html += countRow(x);

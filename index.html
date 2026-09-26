@@ -1542,7 +1542,7 @@ function scCount(){
     html += `</div>${isSup ? addSupBox() : ''}</div>`;
   }
   app.innerHTML = header(title, S.loc.name, viewHome) + `<main>
-    <div class="note">นับของจริงที่เห็นตรงหน้า · <b>ต้องกรอกทุกช่อง</b> · ของที่ไม่มี ใส่ 0</div>
+    <div class="note" id="cmode">นับของจริงที่เห็นตรงหน้า · <b>ต้องกรอกทุกช่อง</b> · ของที่ไม่มี ใส่ 0</div>
     ${dateField('d')}
     ${html}
     <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
@@ -1576,6 +1576,31 @@ function scCount(){
       return n;
     }catch(err){ return 0; } };
   app.querySelector('main').addEventListener('input', e=>{ if(e.target.closest('.li[data-item]') || e.target.id==='nt') dSave(); });
+  // วันนี้ที่นี่ส่งไปแล้ว → เลือกได้ว่า "นับเพิ่ม/แก้บางรายการ" (ช่องว่าง = ใช้ยอดเดิม ไม่ส่ง)
+  // ค่าเริ่ม = นับครบทุกช่องเหมือนเดิม (กะที่ 2 นับปิดกะ ต้องครบ) · ต้องกดเลือกเองถึงจะเป็นรอบเพิ่ม
+  let extra = false, doneToday = 0;
+  const FULL = `นับของจริงที่เห็นตรงหน้า · <b>ต้องกรอกทุกช่อง</b> · ของที่ไม่มี ใส่ 0`;
+  const paintMode = ()=>{
+    const n = $('#cmode'); if(!n) return;
+    n.classList.toggle('okbox', extra);
+    n.innerHTML = extra
+      ? `<b>นับเพิ่ม/แก้บางรายการ</b> · กรอกเฉพาะรายการที่จะนับเพิ่มหรือแก้ · ช่องที่เว้นว่าง = ใช้ยอดเดิม (ไม่ทับ)
+         <div style="margin-top:8px"><button type="button" class="btn gh sm2" id="xOff" style="width:auto;padding:8px 12px">กลับไปนับครบทุกช่อง</button></div>`
+      : FULL + (doneToday ? `<div style="margin-top:8px" class="xs">วันนี้ที่นี่ส่งไปแล้ว ${doneToday} รอบ · ถ้าจะ<b>นับเพิ่มหรือแก้แค่บางรายการ</b> (เช่น ของที่เพิ่งเพิ่มเข้ารายการ) กดปุ่มนี้</div>
+         <div style="margin-top:6px"><button type="button" class="btn gh sm2" id="xOn" style="width:auto;padding:8px 12px">นับเพิ่ม/แก้บางรายการ</button></div>` : '');
+  };
+  const checkMode = async ()=>{
+    extra = false; doneToday = 0;
+    try{ const c = await sb.from('counts').select('id').eq('branch_id', S.loc.id).eq('counted_on', $('#d').value);
+      doneToday = c.error ? 0 : (c.data||[]).length; }catch(err){}
+    paintMode();
+  };
+  $('#cmode').addEventListener('click', e=>{
+    if(e.target.closest('#xOn')){ extra = true; paintMode(); document.querySelectorAll('.li.miss').forEach(li=>li.classList.remove('miss')); }
+    if(e.target.closest('#xOff')){ extra = false; paintMode(); }
+  });
+  checkMode();
+  $('#d').addEventListener('change', checkMode);
   const restored = dLoad();
   if(restored) toast(`ดึงเลขที่กรอกค้างไว้กลับมา ${restored} รายการ · ตรวจแล้วกดส่งได้เลย`,'ok');
   $('#d').addEventListener('change', ()=>{ document.querySelectorAll('.li[data-item] input').forEach(i=>i.value=''); dLoad(); });
@@ -1584,6 +1609,8 @@ function scCount(){
     const blank = [...document.querySelectorAll('.li[data-item]')].filter(li=>{
       const M = li.querySelector('.cM'), m = li.querySelector('.cm'), K = li.querySelector('.ckg');
       const cnt = (M && M.value!=='') || (m && m.value!=='');
+      // รอบเพิ่ม: ช่องที่ไม่แตะเลย = ไม่นับรอบนี้ · แตะแล้วต้องครบทั้งแถว (เช่น น้ำมัน แกลลอน + กก.)
+      if(extra && ![...li.querySelectorAll('input')].some(i=>i.value!=='')) return false;
       return !cnt || (K && K.value==='');
     });
     document.querySelectorAll('.li.miss').forEach(li=>li.classList.remove('miss'));
@@ -1611,7 +1638,7 @@ function scCount(){
     busy(e.target,true);
     const { data, error } = await sb.rpc('fn_save_count',{
       p_branch:S.loc.id, p_kind: fac?'weekly':'daily', p_on:$('#d').value,
-      p_note:$('#nt').value, p_lines: lines.map(({item,major,minor,base,kg})=>(kg===undefined ? {item,major,minor,base} : {item,major,minor,base,kg}))
+      p_note:$('#nt').value, p_lines: (extra ? filled : lines).map(({item,major,minor,base,kg})=>(kg===undefined ? {item,major,minor,base} : {item,major,minor,base,kg}))
     });
     busy(e.target,false,'ส่งผลการนับ');
     if(error) return toast(errMsg(error),'bad');

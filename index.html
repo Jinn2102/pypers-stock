@@ -1466,6 +1466,46 @@ function oilPreview(li){
   out.innerHTML = l === null ? '' : `<span class="mut">= น้ำมันในแกลลอนนี้</span> <b>${fmt(l,1)} ลิตร</b>`;
 }
 
+// ของใช้ที่ยังไม่มีในรายการ → เพิ่มเป็นของใช้ตัวจริง (นับจำนวนจริง · ทุกที่นับทุกวันตั้งแต่ครั้งหน้า)
+const SUP_UNITS = ['แพ็ก','ห่อ','ชิ้น','ขวด','กล่อง','ม้วน','ถุง','แกลลอน','กก.'];
+function addSupBox(){
+  return `<button type="button" class="btn gh sm2" id="addSup" style="margin-top:10px">+ เพิ่มของใช้ที่ยังไม่มีในรายการ</button>
+    <div id="asBox" style="display:none;margin-top:10px">
+      <div class="xs mut" style="margin-bottom:6px">พิมพ์ชื่อ + หน่วยที่นับ → กด "เพิ่ม" แล้วกรอกจำนวนในช่องที่ขึ้นมา · ครั้งหน้าทุกสาขาจะนับของนี้ด้วย</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="asN" placeholder="ชื่อของ เช่น ถุงมือยาง" maxlength="60" style="flex:1;min-width:0;width:auto;font-size:15px;text-align:left">
+        <input id="asU" list="asUL" placeholder="หน่วย" maxlength="12" style="width:78px;font-size:15px;text-align:left">
+        <datalist id="asUL">${SUP_UNITS.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
+        <button type="button" class="btn sm2" id="asOk" style="width:auto;padding:10px 14px">เพิ่ม</button>
+      </div></div>`;
+}
+async function addSupply(btn){
+  const name = $('#asN').value.trim(), unit = $('#asU').value.trim();
+  if(!name) return toast('พิมพ์ชื่อของก่อน','bad');
+  if(!unit) return toast('ใส่หน่วยก่อน เช่น แพ็ก ห่อ ชิ้น','bad');
+  const nz = t => String(t||'').replace(/\s+/g,'').toLowerCase();
+  const goRow = id => { const li = document.querySelector(`.li[data-item="${id}"]`); if(!li) return false;
+    li.scrollIntoView({block:'center', behavior:'smooth'}); const i = li.querySelector('input'); if(i) setTimeout(()=>i.focus({preventScroll:true}),350); return true; };
+  const have = S.M.items.find(it=>it.cat==='SUPPLY' && (nz(it.label)===nz(name) || nz(it.pname)===nz(name)));
+  if(have && goRow(have.id)) return toast(`"${have.label}" มีช่องนับอยู่แล้ว — กรอกตรงนี้`,'bad');
+  busy(btn,true);
+  const { data, error } = await sb.rpc('fn_add_supply', { p_label:name, p_unit:unit });
+  busy(btn,false,'เพิ่ม');
+  if(error) return toast(errMsg(error),'bad');
+  const r = (data||[])[0]; if(!r) return toast('เพิ่มไม่สำเร็จ','bad');
+  let x = S.M.items.find(y=>y.id===r.stock_item_id);
+  if(!x){
+    const sup = S.M.items.filter(y=>y.cat==='SUPPLY'), base = sup[0] || {};
+    x = { id:r.stock_item_id, level:'packed', label:r.label, ub:r.unit_base, um:null, fac:false,
+      pcode:r.product_code, pname:r.product_name, psort:Math.max(0,...sup.map(y=>y.psort||0))+1, cat:'SUPPLY', chilled:false,
+      catname:base.catname||'ของใช้', csort:base.csort||0, bpm:1 };
+    S.M.items.push(x);
+  }
+  if(!document.querySelector(`.li[data-item="${x.id}"]`)) $('#supl').insertAdjacentHTML('beforeend', supRow(x));
+  goRow(x.id);
+  $('#asN').value = ''; $('#asU').value = '';
+  toast(r.existed ? `"${r.label}" มีอยู่แล้ว — กรอกจำนวนได้เลย` : `เพิ่ม "${r.label}" แล้ว — กรอกจำนวน (${r.unit_base})`,'ok');
+}
 function scCount(){
   const fac = S.loc.kind==='factory';
   const its = S.M.items.filter(x=> fac ? true : (!x.fac && x.level==='packed'));
@@ -1482,7 +1522,7 @@ function scCount(){
     if(!g.length) continue;
     const isSup = gname.includes('ของใช้');
     html += `<div class="card"><h3>${esc(gname)}</h3>${isSup
-      ? `<div class="xs mut" style="margin:-4px 0 8px">นับเฉพาะ<b>แพ็กที่ยังไม่เปิด</b> · แพ็กที่เปิดแล้วไม่ต้องนับ</div>` : ''}<div class="lst">`;
+      ? `<div class="xs mut" style="margin:-4px 0 8px">นับเฉพาะ<b>แพ็กที่ยังไม่เปิด</b> · แพ็กที่เปิดแล้วไม่ต้องนับ</div>` : ''}<div class="lst"${isSup?' id="supl"':''}>`;
     for(const x of g){
       if(isSup){ html += supRow(x); continue; }
       const byM = x.bpm>1;
@@ -1494,19 +1534,12 @@ function scCount(){
         <div class="u">${esc(x.ub)}</div>
       </div>`;
     }
-    html += `</div></div>`;
+    html += `</div>${isSup ? addSupBox() : ''}</div>`;
   }
   app.innerHTML = header(title, S.loc.name, viewHome) + `<main>
     <div class="note">นับของจริงที่เห็นตรงหน้า · <b>ต้องกรอกทุกช่อง</b> · ของที่ไม่มี ใส่ 0</div>
     ${dateField('d')}
     ${html}
-    <div class="card"><h3>🧴 ของอื่นที่ใกล้หมด / หมด</h3><div class="lst">
-      ${(S.M.flags||[]).map(f=>`<div class="li" data-flag="${f.id}">
-        <div class="nm">${esc(f.label)}</div>
-        <div class="tri">${[['ok','พอ'],['low','ใกล้หมด'],['out','หมด']].map(([v,t])=>`<button type="button" data-v="${v}">${t}</button>`).join('')}</div>
-      </div>`).join('')}<div id="nfbox"></div></div>
-      <button type="button" class="btn gh sm2" id="addFlag" style="margin-top:10px">+ เพิ่มของที่ไม่มีในรายการ</button>
-      <div class="xs mut" style="margin-top:6px">ของที่ไม่มีในรายการข้างบน พิมพ์เพิ่มได้เลย · ครั้งหน้าจะขึ้นให้ทุกสาขาเช็กด้วย</div></div>
     <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="nt"></div>
     <button class="btn" id="save">ส่งผลการนับ</button>
   </main>`;
@@ -1518,17 +1551,29 @@ function scCount(){
     if(e.target.classList.contains('ckg')) oilPreview(e.target.closest('.li'));
   });
   app.querySelector('main').addEventListener('click', e=>{
-    if(e.target.closest('#addFlag')){
-      const r = document.createElement('div'); r.className = 'li'; r.dataset.new = '1';
-      r.innerHTML = `<input class="nf" placeholder="ชื่อของ เช่น ทิชชู่" maxlength="60" style="flex:1;width:auto;min-width:0;font-size:15px;text-align:left">
-        <div class="tri">${[['ok','พอ'],['low','ใกล้หมด'],['out','หมด']].map(([v,t])=>`<button type="button" data-v="${v}">${t}</button>`).join('')}</div>`;
-      $('#nfbox').appendChild(r); r.querySelector('.nf').focus();
-      return;
-    }
-    const b = e.target.closest('.tri button'); if(!b) return;
-    const li = b.closest('[data-flag],[data-new]'); li.dataset.v = b.dataset.v;
-    li.querySelectorAll('.tri button').forEach(x=>x.classList.toggle('on', x===b));
+    if(e.target.closest('#addSup')){ $('#asBox').style.display='block'; e.target.closest('#addSup').style.display='none'; $('#asN').focus(); return; }
+    if(e.target.closest('#asOk')) addSupply(e.target.closest('#asOk'));
   });
+  // จำเลขที่พิมพ์ค้างไว้ (หน้าโหลดใหม่ / ปิดแอปไป เลขไม่หาย) · ส่งสำเร็จแล้วล้าง
+  const dKey = () => 'cdraft_'+S.loc.id+'_'+$('#d').value;
+  const dSave = () => { try{
+      const o = {}; document.querySelectorAll('.li[data-item]').forEach(li=>{
+        const v = [...li.querySelectorAll('input')].map(i=>i.value);
+        if(v.some(x=>x!=='')) o[li.dataset.item] = v; });
+      localStorage.setItem(dKey(), JSON.stringify({t:Date.now(), v:o, nt:$('#nt').value}));
+    }catch(err){} };
+  const dLoad = () => { try{
+      const r = JSON.parse(localStorage.getItem(dKey())||'null'); if(!r || !r.v) return 0; let n = 0;
+      Object.entries(r.v).forEach(([id,v])=>{ const li = document.querySelector(`.li[data-item="${id}"]`); if(!li) return;
+        [...li.querySelectorAll('input')].forEach((i,k)=>{ if(v[k]!==undefined && v[k]!=='') i.value = v[k]; }); n++;
+        if(li.dataset.oil) oilPreview(li); });
+      if(r.nt) $('#nt').value = r.nt;
+      return n;
+    }catch(err){ return 0; } };
+  app.querySelector('main').addEventListener('input', e=>{ if(e.target.closest('.li[data-item]') || e.target.id==='nt') dSave(); });
+  const restored = dLoad();
+  if(restored) toast(`ดึงเลขที่กรอกค้างไว้กลับมา ${restored} รายการ · ตรวจแล้วกดส่งได้เลย`,'ok');
+  $('#d').addEventListener('change', ()=>{ document.querySelectorAll('.li[data-item] input').forEach(i=>i.value=''); dLoad(); });
   $('#save').onclick = async e=>{
     // บังคับทุกช่อง: ช่องว่าง ≠ 0 (อาจลืมนับ) → ไม่เดาให้ · ของที่ไม่มีต้องใส่ 0 เอง
     const blank = [...document.querySelectorAll('.li[data-item]')].filter(li=>{
@@ -1545,17 +1590,6 @@ function scCount(){
       if(emp) setTimeout(()=>emp.focus({preventScroll:true}), 350);
       return toast(`ยังไม่ได้นับ ${blank.length} รายการ (กรอบแดง) · ของที่ไม่มี ใส่ 0`,'bad');
     }
-    const fl = [...document.querySelectorAll('.li[data-flag]')];
-    const miss = fl.filter(li=>!li.dataset.v);
-    if(miss.length) return toast(`ของใช้ยังไม่ได้เลือก พอ/ใกล้หมด/หมด อีก ${miss.length} รายการ`,'bad');
-    const nw = [...document.querySelectorAll('.li[data-new]')]
-      .map(li=>({ name: li.querySelector('.nf').value.trim(), status: li.dataset.v || '' })).filter(x=>x.name);
-    const nwMiss = nw.find(x=>!x.status);
-    if(nwMiss) return toast(`"${nwMiss.name}" ยังไม่ได้เลือก พอ/ใกล้หมด/หมด`,'bad');
-    // ชื่อซ้ำกับของที่นับอยู่แล้ว → ให้ไปกรอกช่องนับแทน
-    const nz = s => String(s||'').replace(/\s+/g,'').toLowerCase();
-    const dup = nw.find(x=>S.M.items.some(it=>it.cat==='SUPPLY' && (nz(it.label)===nz(x.name) || nz(it.pname)===nz(x.name))));
-    if(dup) return toast(`"${dup.name}" มีช่องนับอยู่ในการ์ดของใช้ข้างบนแล้ว — กรอกจำนวนตรงนั้นแทน`,'bad');
     const oilBad = [...document.querySelectorAll('.li[data-oil] .oilp .diffneg')];
     if(oilBad.length) return toast('น้ำหนักน้ำมันดูผิดปกติ — ชั่งใหม่อีกที','bad');
     const lines = [...document.querySelectorAll('.li[data-item]')].map(li=>{
@@ -1576,12 +1610,7 @@ function scCount(){
     });
     busy(e.target,false,'ส่งผลการนับ');
     if(error) return toast(errMsg(error),'bad');
-    if(fl.length || nw.length){
-      const r2 = await sb.rpc('fn_save_supply_status',{ p_branch:S.loc.id,
-        p_items: fl.map(li=>({ flag: li.dataset.flag, status: li.dataset.v })).concat(nw) });
-      if(r2.error) toast('ยอดนับบันทึกแล้ว แต่สถานะของใช้บันทึกไม่สำเร็จ: '+errMsg(r2.error),'bad');
-      else if(nw.length) await reloadFlags();
-    }
+    try{ localStorage.removeItem(dKey()); }catch(err){}
     await loadOnHand(S.loc.id);
     countResult(data);
   };
@@ -2238,21 +2267,22 @@ async function drawPerf(on){
         <b>ตั้งต้น</b> = ยังไม่มียอดนับวันก่อน ไม่มีอะไรให้เทียบ · วันถัดไปเริ่มเห็นยอดขาย<br>
         ของใช้นับเป็นแพ็กที่ยังไม่เปิด · <b>ใช้ไป</b> = จำนวนแพ็กที่ถูกเปิดใช้
       </div>`
-    + (canEditFlags ? `<button class="btn gh sm2" id="flagAdm" style="margin-bottom:24px">แก้รายการ "ของอื่นที่ใกล้หมด" ที่ให้สาขาเช็ก</button>` : '');
+    + (canEditFlags ? `<button class="btn gh sm2" id="flagAdm" style="margin-bottom:24px">แก้รายการของใช้ที่ให้นับ (ชื่อ · หน่วย · ซ่อน)</button>` : '');
   const fa = $('#flagAdm'); if(fa) fa.onclick = flagAdmin;
 }
 
-/* ---------- แก้รายการของที่ให้เช็ก พอ/ใกล้หมด/หมด (เจ้าของ/หัวหน้า) ---------- */
+/* ---------- แก้รายการของใช้ที่ให้นับ (เจ้าของ/หัวหน้า) ---------- */
 async function flagAdmin(){
-  const { data, error } = await sb.rpc('fn_supply_flags_admin');
+  const { data, error } = await sb.rpc('fn_supply_items_admin');
   if(error) return toast(errMsg(error),'bad');
   const rows = data || [];
   const dt = t => t ? new Date(t).toLocaleDateString('th-TH',{day:'numeric',month:'short',timeZone:'Asia/Bangkok'}) : '';
-  const s = sheet(`<h3 style="margin:0 0 4px">รายการที่ให้เช็ก พอ / ใกล้หมด / หมด</h3>
-    <div class="xs mut" style="margin-bottom:10px">แก้ชื่อแล้วกด ✓ · <b>ซ่อน</b> = ไม่ต้องเช็กอีก (ประวัติยังอยู่ · ถ้าหน้าร้านพิมพ์ชื่อเดิมมาอีก จะกลับมาเอง)</div>
-    <div style="max-height:58vh;overflow:auto">${rows.map(r=>`<div class="li" data-fid="${r.id}" style="${r.active?'':'opacity:.5'}">
+  const s = sheet(`<h3 style="margin:0 0 4px">รายการของใช้ที่ให้นับ</h3>
+    <div class="xs mut" style="margin-bottom:10px">แก้ชื่อ/หน่วยแล้วกด ✓ · <b>ซ่อน</b> = ไม่ต้องนับอีก (ประวัติยังอยู่ · ถ้าหน้าร้านเพิ่มชื่อเดิมมาอีก จะกลับมาเอง) · หน่วยแก้ได้เฉพาะของที่พนักงานเพิ่ม</div>
+    <div style="max-height:58vh;overflow:auto">${rows.map(r=>`<div class="li" data-fid="${r.stock_item_id}" style="${r.active?'':'opacity:.5'}">
       <div class="nm"><input class="fl-n" value="${esc(r.label)}" maxlength="60" style="width:100%;font-size:15px;padding:8px;text-align:left">
-        <small>${r.seeded ? 'ตั้งต้น' : 'เพิ่มโดย ' + esc(r.by_name || '-') + ' · ' + dt(r.created_at)}${r.active ? '' : ' · ซ่อนอยู่'}</small></div>
+        <small>${r.seeded ? 'ตั้งต้น' : 'เพิ่มโดย ' + esc(r.by_name || '-') + ' · ' + dt(r.added_at)}${r.active ? '' : ' · ซ่อนอยู่'}</small></div>
+      ${r.seeded ? `<div class="u">${esc(r.unit_base)}</div>` : `<input class="fl-u" value="${esc(r.unit_base)}" maxlength="12" style="width:64px;font-size:14px;padding:8px">`}
       <button class="btn gh sm2" data-a="save" style="width:auto;padding:8px 10px">✓</button>
       <button class="btn gh sm2" data-a="tog" style="width:auto;padding:8px 10px">${r.active ? 'ซ่อน' : 'แสดง'}</button>
     </div>`).join('')}</div>
@@ -2260,14 +2290,16 @@ async function flagAdmin(){
   s.el.querySelector('#fa_x').onclick = s.close;
   s.el.querySelector('.sheetbox').addEventListener('click', async e=>{
     const b = e.target.closest('[data-a]'); if(!b) return;
-    const li = b.closest('[data-fid]'); const r = rows.find(x=>x.id===li.dataset.fid); if(!r) return;
-    const args = b.dataset.a === 'save'
-      ? { p_flag: r.id, p_label: li.querySelector('.fl-n').value }
-      : { p_flag: r.id, p_active: !r.active };
-    const res = await sb.rpc('fn_edit_supply_flag', args);
+    const li = b.closest('[data-fid]'); const r = rows.find(x=>x.stock_item_id===li.dataset.fid); if(!r) return;
+    let args;
+    if(b.dataset.a === 'save'){
+      args = { p_item: r.stock_item_id, p_label: li.querySelector('.fl-n').value };
+      const u = li.querySelector('.fl-u'); if(u && u.value.trim() !== r.unit_base) args.p_unit = u.value;
+    } else args = { p_item: r.stock_item_id, p_active: !r.active };
+    const res = await sb.rpc('fn_edit_supply_item', args);
     if(res.error) return toast(errMsg(res.error),'bad');
     toast('บันทึกแล้ว','ok');
-    await reloadFlags();
+    try{ await loadMaster(); }catch(err){}
     s.close(); flagAdmin();
   });
 }

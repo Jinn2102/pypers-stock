@@ -139,10 +139,11 @@ hr.d{border:none;border-top:1px solid var(--line);margin:14px 0}
 .bsel{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .bsel button{background:var(--card2);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:8px 13px;font-size:13.5px;font-family:inherit;cursor:pointer}
 .bsel button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
-.bub{background:var(--card2);border:1px solid var(--line);border-radius:16px 16px 16px 4px;padding:11px 13px;margin:0 0 12px;max-width:94%}
+.bub{background:var(--card2);border:1px solid var(--line);border-radius:16px 16px 16px 4px;padding:11px 13px;margin:0 0 12px}
 .bub .bt{white-space:pre-wrap;font-size:14px;line-height:1.55}
-.bub .ba{display:flex;gap:8px;margin-top:10px}
-.bub .ba .btn{width:auto;padding:7px 12px;margin:0}
+.bub .bh{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:-2px 0 8px;font-size:12px;color:var(--mut)}
+.bub .cp{background:transparent;border:1px solid var(--line);color:var(--mut);border-radius:8px;padding:3px 8px;font-size:11.5px;font-family:inherit;cursor:pointer}
+.bub .cp.ok{color:var(--ok);border-color:var(--ok)}
 /* ---- เช็กลิสต์ ---- */
 .ck{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}
 .ck:last-child{border-bottom:none}
@@ -981,34 +982,40 @@ const shipIcon = r => r.out ? '⚫' : (r.rw && LV[r.rw.level]!==undefined ? rwIc
 const shipQty = r => r.sug > 0 ? `${fmt(r.sug)} ${r.unit}` : '';
 const shipWhy = r => r.out ? 'สาขานับได้ 0' : r.rw ? `เหลือ ${fmt(r.rw.on_hand)} · พอ${r.rw.src==='นับ'?'ใช้':'ขาย'} ~${fmt(r.rw.days_left,1)} วัน` : '';
 const shipHead = (kind, on) => `${kind==='rush' ? '🚨 ส่งด่วน' : '📦 ส่งประจำสัปดาห์'} · ${dnext(on)}`;
-function shipBranchText(p, bname, kind, on){
-  const it = p.rows.filter(r=>r.inChat);
-  let t = `${shipHead(kind, on)}\n🏪 ${bname}${it.length?` · ${it.length} รายการ`:''}\n`;
-  if(!it.length) t += `\n✓ ${kind==='rush' ? 'ไม่มีของใกล้หมด' : 'ไม่มีอะไรต้องเติม'}\n`;
-  let cat = null;
-  it.forEach(r=>{
-    if(r.cat!==cat){ cat = r.cat; t += `\n${cat}\n`; }
-    const ic = shipIcon(r), q = shipQty(r);
-    t += `☐ ${rwShort(r.label)}  ${q || '(ใส่ตามเห็นสมควร)'}${ic?'  '+ic:''}${!q && shipWhy(r) ? ' · '+shipWhy(r) : ''}\n`;
+// เจ้าของ 27 ก.ย.: "เอารวมทุกสาขา แบ่งแค่ 2 แชท หยิบของ และจัดแบ่งสาขา · ไม่ต้องส่งผ่านลิงก์ LINE ให้เป็นปุ่มคัดลอกเล็กๆ"
+const shipLine = r => { const ic = shipIcon(r), q = shipQty(r);
+  return `☐ ${rwShort(r.label)}  ${q || '(ใส่ตามเห็นสมควร)'}${ic?'  '+ic:''}${!q && shipWhy(r) ? ' · '+shipWhy(r) : ''}`; };
+function shipSplitText(plans, names, kind, on){
+  // แชท 2: จัดแบ่งสาขา — ทุกสาขาในข้อความเดียว
+  let t = `📋 จัดแบ่งสาขา · ${shipHead(kind, on)}\n${plans.length} สาขา: ${plans.map(p=>names[p.to].short).join(' · ')}\n`;
+  plans.forEach(p=>{
+    const it = p.rows.filter(r=>r.inChat);
+    t += `\n━━ 🏪 ${names[p.to].name}${it.length?` (${it.length})`:''} ━━\n`;
+    if(!it.length) t += `✓ ${kind==='rush' ? 'ไม่มีของใกล้หมด' : 'ไม่มีอะไรต้องเติม'}\n`;
+    let cat = null;
+    it.forEach(r=>{ if(r.cat!==cat){ cat = r.cat; t += `[${cat}]\n`; } t += shipLine(r) + '\n'; });
+    if(p.flags.length) t += `🧴 สาขาแจ้ง: ${p.flags.map(f=>`${f.label} ${f.status==='out'?'หมด':'ใกล้หมด'}`).join(' · ')}\n`;
   });
-  if(p.flags.length) t += `\n🧴 สาขาแจ้ง: ${p.flags.map(f=>`${f.label} ${f.status==='out'?'หมด':'ใกล้หมด'}`).join(' · ')}\n`;
-  if(it.length) t += `\n👉 จัดเสร็จ ส่งแล้ว แจ้งหลังบ้านว่าส่งจริงเท่าไหร่`;
+  t += `\n👉 จัดเสร็จ ส่งแล้ว แจ้งหลังบ้านว่าส่งจริงเท่าไหร่`;
   return t.trim();
 }
 function shipPickText(plans, names, kind, on){
-  // รวมยอดที่ต้องหยิบจากโรงงาน (ก่อนแบ่งใส่ลังแต่ละสาขา) · บอกถ้าโรงงานมีไม่พอ
-  const m = new Map();
-  plans.forEach(p=>p.rows.filter(r=>r.sug>0).forEach(r=>{
-    const g = m.get(r.id) || { r, tot:0, by:[] };
-    g.tot += r.sug; g.by.push(`${names[p.to].short} ${fmt(r.sug)}`); m.set(r.id, g);
+  // แชท 1: หยิบของ — ยอดรวมทุกสาขาที่ต้องหยิบจากโรงงาน (ก่อนแบ่งใส่ลัง) · บอกถ้าโรงงานมีไม่พอ
+  const m = new Map(), ord = new Map(), look = new Map();
+  plans.forEach(p=>p.rows.forEach((r,i)=>{
+    if(!ord.has(r.id)) ord.set(r.id, i);
+    if(r.sug>0){ const g = m.get(r.id) || { r, tot:0, by:[] }; g.tot += r.sug; g.by.push(`${names[p.to].short} ${fmt(r.sug)}`); m.set(r.id, g); }
+    else if(r.inChat){ const g = look.get(r.id) || { r, by:[] }; g.by.push(names[p.to].short); look.set(r.id, g); }
   }));
-  if(!m.size) return '';
-  let t = `🧺 หยิบรวมจากโรงงาน · ${shipHead(kind, on)}\n${plans.length} สาขา: ${plans.map(p=>names[p.to].short).join(' · ')}\n`, cat = null;
-  [...m.values()].forEach(g=>{
-    if(g.r.cat!==cat){ cat = g.r.cat; t += `\n${cat}\n`; }
+  let t = `🧺 หยิบของ · ${shipHead(kind, on)}\n${plans.length} สาขา: ${plans.map(p=>names[p.to].short).join(' · ')}\n`, cat = null;
+  if(!m.size && !look.size) return t + `\n✓ ${kind==='rush' ? 'ไม่มีของใกล้หมด' : 'ไม่มีอะไรต้องเติม'}`;
+  [...m.values()].sort((a,b)=>ord.get(a.r.id)-ord.get(b.r.id)).forEach(g=>{
+    if(g.r.cat!==cat){ cat = g.r.cat; t += `\n[${cat}]\n`; }
     const need = g.tot * (g.r.byMajor ? g.r.bpm : 1), have = oh(g.r.id);
-    t += `• ${rwShort(g.r.label)}  ${fmt(g.tot)} ${g.r.unit}  (${g.by.join(' · ')})${need > have ? `\n   ⚠️ โรงงานมี ${boxTxt(Math.max(have,0), g.r.bpm, g.r.um, g.r.ub)}` : ''}\n`;
+    t += `☐ ${rwShort(g.r.label)}  ${fmt(g.tot)} ${g.r.unit}  (${g.by.join(' · ')})${need > have ? `\n   ⚠️ โรงงานมี ${boxTxt(Math.max(have,0), g.r.bpm, g.r.um, g.r.ub)}` : ''}\n`;
   });
+  if(look.size) t += `\nดูเองว่าจะส่งไหม (ใกล้หมด แต่ไม่มีเลขแนะนำ)\n` + [...look.values()].sort((a,b)=>ord.get(a.r.id)-ord.get(b.r.id))
+    .map(g=>`☐ ${rwShort(g.r.label)}  (${g.by.join(' · ')})`).join('\n') + '\n';
   return t.trim();
 }
 
@@ -1070,9 +1077,7 @@ function scShip(){
   const savePick = ()=>{ try{ localStorage.setItem('shipBrs', JSON.stringify([...picked])); }catch(e){} };
 
   /* ---- 1) แชทจัดของ ---- */
-  const bubble = (t, id) => `<div class="bub" data-bub="${id}"><div class="bt">${esc(t)}</div>
-    <div class="ba"><button type="button" class="btn sm2" data-line="${id}" style="background:#06C755">ส่งใน LINE</button>
-    <button type="button" class="btn gh sm2" data-copy="${id}">คัดลอก</button></div></div>`;
+  const bubble = (t, id, title) => `<div class="bub" data-bub="${id}"><div class="bh"><b>${title}</b><button type="button" class="cp" data-copy="${id}">⧉ คัดลอก</button></div><div class="bt">${esc(t)}</div></div>`;
   let texts = {};
   const makeChat = async ()=>{
     if(!picked.size) return toast('เลือกสาขาก่อน','bad');
@@ -1081,24 +1086,22 @@ function scShip(){
     let plans;
     try{ plans = await Promise.all(ids.map(getPlan)); }
     catch(e){ box.innerHTML = `<div class="note err">${esc(errMsg(e))}</div>`; return; }
-    texts = {};
-    const pick = plans.length > 1 ? shipPickText(plans, names, kind, on) : '';
-    if(pick) texts.pick = pick;
-    plans.forEach(p=>{ texts[p.to] = shipBranchText(p, names[p.to].name, kind, on); });
+    texts = { pick: shipPickText(plans, names, kind, on), split: shipSplitText(plans, names, kind, on) };
     const nItems = plans.reduce((a,p)=>a+p.rows.filter(r=>r.inChat).length, 0);
-    box.innerHTML = `<div class="xs mut" style="margin-bottom:6px">${plans.length} สาขา · ${nItems} รายการ${plans[0]&&plans[0].nd?` · รอบส่งปกติ ${dnext(plans[0].nd)}`:''} · ส่งทีละสาขาเข้า LINE คนจัดของ หรือคัดลอกทั้งหมด</div>
-      ${pick ? bubble(pick, 'pick') : ''}
-      ${plans.map(p=>bubble(texts[p.to], p.to)).join('')}
-      <button type="button" class="btn gh sm2" id="cpAll" style="margin-top:6px">คัดลอกทั้งหมด</button>
-      <button type="button" class="btn" id="goFill" style="margin-top:10px">จัดเสร็จแล้ว → ✍️ กรอกที่ส่งจริง</button>`;
-    $('#cpAll').onclick = ()=>copyTxt(Object.values(texts).join('\n\n— — —\n\n'));
+    box.innerHTML = `<div class="xs mut" style="margin-bottom:6px">${plans.length} สาขา · ${nItems} รายการ${plans[0]&&plans[0].nd?` · รอบส่งปกติ ${dnext(plans[0].nd)}`:''}</div>
+      ${bubble(texts.pick, 'pick', 'แชท 1 · หยิบของ')}
+      ${bubble(texts.split, 'split', 'แชท 2 · จัดแบ่งสาขา')}
+      <button type="button" class="btn" id="goFill" style="margin-top:6px">จัดเสร็จแล้ว → ✍️ กรอกที่ส่งจริง</button>`;
     $('#goFill').onclick = ()=>{ step = 'fill'; paint(); $('#to').value = ids[0]; drawFill(); window.scrollTo(0,0); };
   };
-  const copyTxt = async t => { try{ await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว · ไปวางในแชท LINE ได้เลย','ok'); }
-                               catch(e){ toast('คัดลอกไม่ได้ · กดค้างที่ข้อความแล้วเลือกคัดลอก','bad'); } };
-  $('#chat').onclick = e=>{
-    const l = e.target.closest('[data-line]'); if(l) return window.open('https://line.me/R/share?text=' + encodeURIComponent(texts[l.dataset.line]||''), '_blank');
-    const c = e.target.closest('[data-copy]'); if(c) return copyTxt(texts[c.dataset.copy]||'');
+  const copyTxt = async t => {
+    try{ await navigator.clipboard.writeText(t); return true; }
+    catch(e){ try{ const ta = document.createElement('textarea'); ta.value = t; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; }catch(e2){ return false; } } };
+  $('#chat').onclick = async e=>{
+    const c = e.target.closest('[data-copy]'); if(!c) return;
+    if(await copyTxt(texts[c.dataset.copy]||'')){ c.textContent = '✓ คัดลอกแล้ว'; c.classList.add('ok'); setTimeout(()=>{ c.textContent = '⧉ คัดลอก'; c.classList.remove('ok'); }, 1600); }
+    else toast('คัดลอกไม่ได้ · กดค้างที่ข้อความแล้วเลือกคัดลอก','bad');
   };
   $('#brs').onclick = e=>{
     const b = e.target.closest('button'); if(!b) return;

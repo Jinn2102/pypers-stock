@@ -181,9 +181,11 @@ const rwShort = l => String(l||'').replace('Dip ','').replace(' 20 กรัม'
 async function loadRunway(){
   try{ const { data, error } = await sb.rpc('fn_runway', { p_as_of: today() }); return error ? [] : (data||[]); }catch(e){ return []; }
 }
-const rwLine = x => `${x.level==='red'?'🔴':'🟠'} <b>${esc(rwShort(x.label))}</b> เหลือ ${fmt(x.on_hand)} · ขายวันละ ~${fmt(x.per_day,1)} → หมดราว ${ddmm(x.runs_out_on)}`;
-const rwHot = rw => rw.filter(x=>x.level!=='ok').sort((a,b)=>(a.level===b.level?0:(a.level==='red'?-1:1)) || num(a.days_left)-num(b.days_left));
-const rwNote = x => `<span class="${x.level==='red'?'diffneg':(x.level==='orange'?'diffpos':'mut')}">พอขาย ~${fmt(x.days_left,1)} วัน</span>`;
+const rwIcon = x => x.level==='red' ? '🔴' : x.level==='orange' ? '🟠' : '🟡';
+const rwLine = x => `${rwIcon(x)} <b>${esc(rwShort(x.label))}</b> เหลือ ${fmt(x.on_hand)} · ขายวันละ ~${fmt(x.per_day,1)} → หมดราว ${ddmm(x.runs_out_on)}`;
+const rwHot = rw => rw.filter(x=>x.level==='red' || x.level==='orange').sort((a,b)=>(a.level===b.level?0:(a.level==='red'?-1:1)) || num(a.days_left)-num(b.days_left));
+const rwNote = x => `<span class="${x.level==='red'?'diffneg':(x.level==='orange'||x.level==='yellow'?'diffpos':'mut')}">${x.level!=='ok'?rwIcon(x)+' ':''}พอ${x.src==='นับ'?'ใช้':'ขาย'} ~${fmt(x.days_left,1)} วัน</span>`;
+const LV = { red:0, orange:1, yellow:2 };
 const today = () => new Date().toLocaleDateString('sv-SE');
 const LOCKMIN = 15, MAXTRY = 5;
 
@@ -969,7 +971,7 @@ function transferView(fromFactory){
           share:null, target:null, there:null, sendMajor:x.bpm>1?0:null, sendBase:0 }));
       if(!rows.length){ $('#plan').innerHTML = '<div class="note">ที่นี่ยังไม่มีของให้ส่ง</div>'; return; }
     }
-    let html = '', cat = '', rwMap = new Map();
+    let html = '', cat = '', rwMap = new Map(), nearIds = new Set(), nearTxt = '';
     if(fromFactory){
       try{
         const fs = await sb.rpc('fn_supply_status',{ p_branch: to });
@@ -980,23 +982,39 @@ function transferView(fromFactory){
       rwMap = new Map();
       const rw = (await loadRunway()).filter(x=>x.branch_id===to);
       rw.forEach(x=>rwMap.set(x.stock_item_id, x));
-      const hot = rwHot(rw);
-      if(hot.length) html += `<div class="note err" id="rwhot" style="margin-top:10px">🚨 <b>อาจหมดก่อนรอบส่งหน้า (${dnext(hot[0].next_delivery)})</b><br>${
-        hot.map(rwLine).join('<br>')}<div class="xs" style="margin-top:6px">คิดจาก: ที่สาขาเหลือ (นับ ${ddmm(hot[0].counted_on)}) ÷ ขายเฉลี่ยต่อวันจาก POS</div></div>`;
+      // รวมรายการใกล้หมดของสาขานี้ — ไว้ส่งไปพร้อมรอบด่วน (เจ้าของสั่ง 27 ก.ย.)
+      //   🔴 หมดก่อนรอบส่งปกติ · 🟠 เหลือเผื่อ < 1 วัน · 🟡 เหลือเผื่อ < near_days วัน · ⚫ ของใช้ที่สาขานับได้ 0
+      const near = rw.filter(x=>LV[x.level]!==undefined).sort((a,b)=>LV[a.level]-LV[b.level] || num(a.days_left)-num(b.days_left));
+      const outs = rows.filter(r=>r.cat==='ของใช้' && r.there!=null && num(r.there)<=0 && !rwMap.has(r.id));
+      nearIds = new Set([...near.map(x=>x.stock_item_id), ...outs.map(r=>r.id)]);
+      if(nearIds.size){
+        const bname = (S.M.branches.find(b=>b.id===to)||{}).name || '';
+        const nd = near.length ? near[0].next_delivery : null, cnt = (near[0]||{}).counted_on;
+        const lineTxt = x => `${rwIcon(x)} ${rwShort(x.label)} เหลือ ${fmt(x.on_hand)} ${x.unit_base} · ${x.src==='นับ'?'ใช้':'ขาย'}วันละ ~${fmt(x.per_day,1)} → หมดราว ${ddmm(x.runs_out_on)}`;
+        nearTxt = `📋 ของใกล้หมด · ${bname}${cnt?` (นับ ${ddmm(cnt)})`:''}\n` + near.map(lineTxt).join('\n') +
+          (outs.length ? `\n⚫ ของใช้ที่นับได้ 0: ${outs.map(r=>r.label).join(', ')}` : '') + (nd ? `\nรอบส่งปกติ ${dnext(nd)}` : '');
+        html += `<div class="note err" id="rwhot" style="margin-top:10px">🚨 <b>ของใกล้หมดที่ ${esc(bname)} (${nearIds.size} รายการ)</b>${nd?` · รอบส่งปกติ ${dnext(nd)}`:''}<br>${
+          near.map(rwLine).join('<br>')}${outs.length ? `<br>⚫ <b>ของใช้ที่นับได้ 0:</b> ${outs.map(r=>esc(r.label)).join(' · ')}` : ''}
+          <div class="xs" style="margin-top:6px">🔴 หมดก่อนรอบส่งปกติ · 🟠 เผื่อไม่ถึง 1 วัน · 🟡 เผื่อไม่ถึง ${esc(String((S.set||{}).near_days||3))} วัน · คิดจาก: ที่สาขาเหลือ${cnt?` (นับ ${ddmm(cnt)})`:''} ÷ ขายเฉลี่ย POS (ของใช้ = ใช้เฉลี่ยจากที่นับ)</div>
+          <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button type="button" class="btn gh sm2" id="nearOnly" style="width:auto;padding:8px 12px">ดูเฉพาะรายการนี้</button>
+            <button type="button" class="btn gh sm2" id="nearLine" style="width:auto;padding:8px 12px">ส่งรายการนี้ใน LINE</button>
+          </div></div>`;
+      }
     }
     for(const r of rows){
-      if(r.cat!==cat){ cat=r.cat; html += `<div class="card" style="padding:12px 14px;margin:14px 0 8px"><h3 style="margin:0">${esc(cat)}</h3></div>`; }
+      if(r.cat!==cat){ cat=r.cat; html += `<div class="card" data-cathd="${esc(cat)}" style="padding:12px 14px;margin:14px 0 8px"><h3 style="margin:0">${esc(cat)}</h3></div>`; }
       const byMajor = r.bpm>1;
       const have = oh(r.id);
       // เลขแนะนำโชว์ให้ดู แต่ไม่กรอกให้ — คนจัดของต้องพิมพ์เองทุกครั้ง (เจ้าของสั่ง 25 ก.ย.)
       const sugQ = byMajor ? num(r.sendMajor) : num(r.sendBase);
       const sug = fromFactory && sugQ > 0;
-      html += `<div class="li" data-row="${r.id}" data-bpm="${r.bpm}" data-major="${byMajor?1:0}"${sug?' data-sug="1"':''}>
+      html += `<div class="li" data-row="${r.id}" data-cat="${esc(r.cat)}" data-bpm="${r.bpm}" data-major="${byMajor?1:0}"${sug?' data-sug="1"':''}${nearIds.has(r.id)?' data-near="1"':''}>
         <div class="nm">${esc(r.label)}
           <small>${sug ? `<b class="sug">แนะนำ ${fmt(sugQ)} ${esc(byMajor?r.um:r.ub)}</b> · ` : ''}ที่นี่มี ${esc(boxTxt(have, r.bpm, r.um, r.ub))}${
             r.share!=null?` · สาขาขายได้ ${r.share}%`:''}${
             rwMap.has(r.id) ? ' · ' + rwNote(rwMap.get(r.id)) : ''}${
-            r.cat==='ของใช้' && r.there!=null ? ` · สาขามี ${esc(boxTxt(r.there, r.bpm, r.um, r.ub))}` : ''}</small></div>
+            r.cat==='ของใช้' && r.there!=null ? ` · <span class="${num(r.there)<=0?'diffneg':''}">${num(r.there)<=0?'⚫ ':''}สาขามี ${esc(boxTxt(r.there, r.bpm, r.um, r.ub))}</span>` : ''}</small></div>
         <input type="number" inputmode="numeric" min="0" step="1" class="qs" placeholder=" "
           value="" style="width:${byMajor?58:72}px">
         <div class="u">${esc(byMajor?r.um:r.ub)}</div>
@@ -1006,6 +1024,15 @@ function transferView(fromFactory){
       </div>`;
     }
     $('#plan').innerHTML = html;
+    const no = $('#nearOnly');
+    if(no){ let only = false;
+      no.onclick = ()=>{ only = !only; no.textContent = only ? 'ดูทุกรายการ' : 'ดูเฉพาะรายการนี้';
+        document.querySelectorAll('#plan .li[data-row]').forEach(li=>{ li.style.display = (!only || li.dataset.near || li.querySelector('.qs').value!=='') ? '' : 'none'; });
+        document.querySelectorAll('#plan [data-cathd]').forEach(h=>{ const c = h.dataset.cathd;
+          h.style.display = [...document.querySelectorAll('#plan .li[data-row]')].some(li=>li.dataset.cat===c && li.style.display!=='none') ? '' : 'none'; });
+      };
+      $('#nearLine').onclick = ()=>{ window.open('https://line.me/R/share?text=' + encodeURIComponent(nearTxt), '_blank'); };
+    }
     $('#plan').oninput = e=>{ const li = e.target.closest('.li.miss'); if(li && e.target.value!=='') li.classList.remove('miss'); tally(); };
     tally();
   };

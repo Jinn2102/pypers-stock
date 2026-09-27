@@ -55,6 +55,12 @@ select{-webkit-appearance:none;appearance:none;
   border-radius:14px;padding:15px;margin-bottom:10px;cursor:pointer;width:100%;text-align:right;
   color:var(--tx);font-family:inherit}
 .tile:active{background:var(--card2)}
+.hgrp{margin:16px 2px 7px;font-size:13px;color:var(--mut);font-weight:600}
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tgrid .tile{margin:0;flex-direction:column;align-items:flex-start;gap:6px;padding:12px 12px 13px;min-height:84px}
+.tgrid .tile .ic{width:auto;font-size:23px;text-align:left}
+.tgrid .tile .tx b{font-size:14.5px;line-height:1.3}
+.tgrid .tile .tx .badge{display:inline-block;margin-top:4px;font-size:11.5px;color:#fff}
 .tile .ic{font-size:25px;width:34px;text-align:center;flex-shrink:0}
 .tile .tx{flex:1;text-align:left;min-width:0}
 .tile .tx b{display:block;font-size:16px;font-weight:600}
@@ -137,6 +143,11 @@ hr.d{border:none;border-top:1px solid var(--line);margin:14px 0}
 .tabs button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
 .empty{color:var(--mut);font-size:12.5px;padding:6px 0}
 .bsel{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.rbs{margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--line);font-size:15px}
+.rbst{display:flex;gap:8px;align-items:flex-start;margin:12px 0 4px;font-size:14px;font-weight:600}
+.rbst .stn{flex-shrink:0;min-width:22px;height:22px;border-radius:50%;background:var(--acc);color:#fff;font-size:12px;display:inline-flex;align-items:center;justify-content:center}
+.rbi{display:flex;justify-content:space-between;gap:10px;padding:6px 0 6px 30px;border-bottom:1px dashed var(--line);font-size:14px}
+.rbi b{font-variant-numeric:tabular-nums;white-space:nowrap}
 .bsel button{background:var(--card2);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:8px 13px;font-size:13.5px;font-family:inherit;cursor:pointer}
 .bsel button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
 .bub{background:var(--card2);border:1px solid var(--line);border-radius:16px 16px 16px 4px;padding:11px 13px;margin:0 0 12px}
@@ -223,6 +234,7 @@ const SCREENS = [
   {id:'make',  ic:'🥣', nm:'ทำไส้',              sb:'บันทึกไส้ที่ทำได้วันนี้ (กก.)',        at:'factory'},
   {id:'roll',  ic:'🌯', nm:'ม้วน',               sb:'เบิกไส้ · ม้วนได้กี่ชิ้น · ใครม้วน',   at:'factory'},
   {id:'sauce', ic:'🥫', nm:'ผสม / แบ่งบรรจุ',   sb:'Dip · เทเทอร์ท็อต — กรอกวัตถุดิบหลักตัวเดียว', at:'factory'},
+  {id:'recipe',ic:'📖', nm:'สูตรอาหาร',          sb:'ส่วนผสม · ขั้นตอน · คูณตามจำนวนสูตร',     at:'factory', who:['owner','factory']},
   {id:'ship',  ic:'🚚', nm:'จัดของส่งสาขา',     sb:'แชทจัดของ · แล้วกรอกที่ส่งจริง',            at:'factory'},
   {id:'recv',  ic:'📥', nm:'รับของคืนจากสาขา',  sb:'ตรวจของที่สาขาส่งกลับมา',               at:'factory'},
   {id:'count', ic:'📋', nm:'นับสต๊อกโรงงาน',    sb:'นับของจริง แล้วเทียบกับที่ควรเหลือ',   at:'factory'},
@@ -467,6 +479,27 @@ function header(title, sub, onBack){
 }
 function wire(onBack){ const b=$('#_bk'); if(b) b.onclick = onBack; }
 
+const HOME_GROUPS = [
+  ['prod',  '🍳 ผลิต',          ['make','roll','sauce','recipe']],
+  ['move',  '🚚 ส่ง / รับของ',   ['ship','recv','inn','b2b']],
+  ['stock', '📋 สต๊อก',          ['count','waste']],
+  ['boss',  '📊 ดูแล',           ['perf','check','dash']],
+  ['team',  '👥 พนักงาน',        ['line','staff']],
+];
+function homeGroups(tiles){
+  const tile = t => `<button class="tile" data-go="${t.id}"><div class="ic">${t.ic}</div>
+      <div class="tx"><b>${esc(t.nm)}</b>${t.badge?`<span class="badge">${esc(t.badge)}</span>`:''}</div></button>`;
+  const used = new Set();
+  // สาขา: นับสต๊อกเป็นงานหลักทุกวัน → กลุ่มสต๊อกขึ้นก่อน
+  const order = S.loc && S.loc.kind!=='factory' ? [...HOME_GROUPS].sort((x,y)=>(x[0]==='stock'?-1:0)-(y[0]==='stock'?-1:0)) : HOME_GROUPS;
+  let h = order.map(([k, name, ids])=>{
+    const ts = ids.map(id=>tiles.find(t=>t.id===id)).filter(Boolean); ts.forEach(t=>used.add(t.id));
+    return ts.length ? `<div class="hgrp">${name}</div><div class="tgrid" data-grp="${k}">${ts.map(tile).join('')}</div>` : '';
+  }).join('');
+  const rest = tiles.filter(t=>!used.has(t.id));
+  if(rest.length) h += `<div class="hgrp">อื่น ๆ</div><div class="tgrid">${rest.map(tile).join('')}</div>`;
+  return h;
+}
 async function viewHome(){
   const at = S.loc.kind==='factory' ? 'factory' : 'branch';
   const list = SCREENS.filter(s=>s.at===at);
@@ -482,6 +515,15 @@ async function viewHome(){
       nTodo = (data||[]).filter(r=>!r.done).length;
     }catch(e){}
   }
+  // จัดหน้าหลักเป็นกลุ่ม (เจ้าของ 27 ก.ย.: "ช่วยจัด category ... มันเริ่มเยอะ")
+  const tiles = list.filter(s=>!s.who || s.who.includes(S.me.role)).map(s=>({ ...s,
+    badge: s.id==='recv' && nInbound ? String(nInbound) : '' }));
+  if(seeDash) tiles.push(
+    { id:'perf',  ic:'📈', nm:'ผลงานรายวัน' },
+    { id:'check', ic:'🗒️', nm:'เช็กลิสต์วันนี้', badge: nTodo ? `${nTodo} ยังไม่ส่ง` : '' },
+    { id:'dash',  ic:'📊', nm:'ภาพรวมทั้งบริษัท' },
+    { id:'line',  ic:'💬', nm:'ส่งรหัสให้พนักงาน' });
+  if(seeStaff) tiles.push({ id:'staff', ic:'👥', nm:'จัดการพนักงาน' });
   const canSwitch = S.me.role==='owner' || S.me.role==='manager'
     || S.me.role==='factory'
     || S.M.branches.filter(b=> b.kind!=='factory').length>1;
@@ -492,27 +534,14 @@ async function viewHome(){
         ${canSwitch?'<button class="btn gh sm2" id="sw" style="width:auto;padding:8px 14px">เปลี่ยน</button>':''}
       </div>
     </div>
-    ${list.map(s=>`<button class="tile" data-go="${s.id}">
-      <div class="ic">${s.ic}</div>
-      <div class="tx"><b>${esc(s.nm)}${s.id==='recv'&&nInbound?` <span class="badge">${nInbound}</span>`:''}</b><span>${esc(s.sb)}</span></div>
-      <div class="ar">›</div></button>`).join('')}
-    ${seeDash?`<button class="tile" data-go="perf">
-      <div class="ic">📈</div><div class="tx"><b>ผลงานรายวัน</b><span>ม้วนได้กี่ชิ้น · ทำไส้กี่ กก. · สาขาขายไปเท่าไหร่</span></div><div class="ar">›</div></button>`:''}
-    ${seeDash?`<button class="tile" data-go="check">
-      <div class="ic">🗒️</div><div class="tx"><b>เช็กลิสต์วันนี้${nTodo?` <span class="badge">${nTodo} ยังไม่ส่ง</span>`:''}</b><span>ใครส่งรายงานแล้ว ใครยังไม่ส่ง</span></div><div class="ar">›</div></button>`:''}
-    ${seeDash?`<button class="tile" data-go="line">
-      <div class="ic">💬</div><div class="tx"><b>ส่งรหัสให้พนักงาน</b><span>ผูก LINE ส่วนตัว แล้วระบบส่งรหัส+ลิงก์ให้เอง</span></div><div class="ar">›</div></button>`:''}
-    ${seeStaff?`<button class="tile" data-go="staff">
-      <div class="ic">👥</div><div class="tx"><b>จัดการพนักงาน</b><span>เพิ่มคนใหม่ · แจ้งคนออก · เปลี่ยนสิทธิ์</span></div><div class="ar">›</div></button>`:''}
-    ${seeDash?`<button class="tile" data-go="dash">
-      <div class="ic">📊</div><div class="tx"><b>ภาพรวมทั้งบริษัท</b><span>ของคงเหลือทุกที่ แยกทุกไส้ ครบทุกรายการ</span></div><div class="ar">›</div></button>`:''}
+    ${homeGroups(tiles)}
     <button class="btn gh sm2" id="out" style="margin-top:16px">ออกจากระบบ</button>
   </main>`;
   if($('#sw')) $('#sw').onclick = ()=>{ localStorage.removeItem('loc'); pickLocation(); };
   $('#out').onclick = signOut;
   app.querySelector('main').onclick = e => {
     const t = e.target.closest('[data-go]'); if(!t) return;
-    ({make:scMake, roll:scRoll, sauce:scSauce, ship:scShip,
+    ({make:scMake, recipe:scRecipe, roll:scRoll, sauce:scSauce, ship:scShip,
       count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, inn:scIn, dash:scDash, check:scCheck, line:scLine, staff:scStaff, perf:scPerf})[t.dataset.go]();
   };
 }
@@ -629,6 +658,65 @@ async function scMake(){
     showMakeResult(data);
     loadProd('make_filling', $('#d').value);
   };
+}
+
+/* ---------- 📖 สูตรอาหาร: ใส่จำนวนสูตร → ส่วนผสมคูณให้ · ขั้นตอนตามลำดับ ---------- */
+const kgTxt = v => { v = num(v); return v < 1 ? `${fmt(v*1000, v*1000 < 100 ? 1 : 0)} ก.` : `${fmt(v, 3)} กก.`; };
+function recipeBody(r, n){
+  let h = '', sec = null, stepped = false, loose = false;
+  (r.rows||[]).forEach(x=>{
+    if(x.section !== sec){ sec = x.section; stepped = false; loose = false;
+      if(sec) h += `<div class="rbs"><b>${esc(sec)}</b></div>`; }
+    if(x.kind==='section') h += `<div class="xs mut" style="margin:-2px 0 6px">${esc(x.label)}</div>`;
+    else if(x.kind==='step'){ stepped = true; h += `<div class="rbst"><span class="stn">${x.grp||''}</span>${esc(x.label)}</div>`; }
+    else if(x.kind==='note') h += `<div class="xs mut" style="margin:6px 0">📝 ${esc(x.label)}</div>`;
+    else {
+      if(x.grp==null && stepped && !loose){ loose = true; h += `<div class="rbst"><span class="stn">·</span>ส่วนผสมอื่น (สูตรไม่ได้ระบุขั้น)</div>`; }
+      h += `<div class="rbi"><span>${esc(x.label)}</span><b>${x.unit==='กก.' ? kgTxt(num(x.qty)*n) : `${fmt(num(x.qty)*n,3)} ${esc(x.unit||'')}`}</b></div>`;
+    }
+  });
+  return h;
+}
+// หน้าแยก "สูตรอาหาร" (เจ้าของ 27 ก.ย.: "แยกหน้าเลย ไม่ต้องรวมในสูตร ให้เห็นเฉพาะคนดูโรงงาน")
+//   เห็นเฉพาะบัญชีโรงงาน/เจ้าของ ตอนอยู่ที่โรงงาน · ฐานข้อมูลเช็กสิทธิ์อีกชั้น (fn_recipe_book)
+async function scRecipe(){
+  app.innerHTML = header('สูตรอาหาร','โรงงาน', viewHome) + `<main><div id="rbw"><div class="ldg sm">กำลังโหลดสูตร…</div></div></main>`;
+  wire(viewHome);
+  const { data, error } = await sb.rpc('fn_recipe_book');
+  if(error){ $('#rbw').innerHTML = `<div class="note err">${esc(errMsg(error))}</div>`; return; }
+  const book = data || [];
+  if(!book.length){ $('#rbw').innerHTML = '<div class="note">ยังไม่มีสูตรในระบบ</div>'; return; }
+  let cur = 0, n = 1;
+  try{ const k = localStorage.getItem('rbItem'); const i = book.findIndex(r=>r.item===k); if(i>=0) cur = i; }catch(e){}
+  $('#rbw').innerHTML = `
+    <div class="bsel" id="rbP" style="margin:0 0 12px">${book.map((r,i)=>`<button type="button" data-i="${i}">${esc(String(r.label).replace(/^ไส้/,''))}</button>`).join('')}</div>
+    <div class="card">
+      <h3 style="margin:0 0 2px" id="rbT"></h3>
+      <div class="xs mut" id="rbS"></div>
+      <label class="fl" style="margin-top:12px">ดูสำหรับกี่สูตร</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="rbN" type="number" inputmode="decimal" step="any" min="0" value="1" style="width:86px">
+        <div class="bsel" id="rbC" style="margin:0">${[0.25,0.5,1,1.5,2].map(v=>`<button type="button" data-v="${v}">${v}</button>`).join('')}</div>
+      </div>
+      <div class="tot"><span class="sm mut">ควรได้ประมาณ</span><span class="big" id="rbY"></span></div>
+      <div id="rbB" style="margin-top:10px"></div>
+    </div>
+    <div class="xs mut" style="margin-top:6px">หน้านี้เห็นเฉพาะโรงงานและเจ้าของ · จะแก้สูตร แจ้งเจ้าของ</div>`;
+  const draw = ()=>{
+    const r = book[cur], y = num(r.yield_kg);
+    n = num($('#rbN').value);
+    document.querySelectorAll('#rbP button').forEach(b=>b.classList.toggle('on', +b.dataset.i===cur));
+    document.querySelectorAll('#rbC button').forEach(b=>b.classList.toggle('on', num(b.dataset.v)===n));
+    $('#rbT').textContent = '📖 ' + r.label;
+    $('#rbS').innerHTML = `${y ? `1 สูตรได้ ${fmt(y,3)} กก. · ≈ ${fmt(y*1000/20)} ชิ้น (20 ก./ชิ้น)` : ''}${r.note ? ` · ${esc(r.note)}` : ''}`;
+    $('#rbY').innerHTML = y && n > 0 ? `${fmt(y*n,2)} <span class="sm mut">กก. · ≈ ${fmt(y*n*1000/20)} ชิ้น</span>` : '—';
+    $('#rbB').innerHTML = n > 0 ? recipeBody(r, n) : '<div class="empty">ใส่จำนวนสูตรก่อน</div>';
+  };
+  $('#rbP').onclick = e=>{ const b = e.target.closest('button'); if(!b) return; cur = +b.dataset.i;
+    try{ localStorage.setItem('rbItem', book[cur].item); }catch(x){} draw(); };
+  $('#rbC').onclick = e=>{ const b = e.target.closest('button'); if(!b) return; $('#rbN').value = b.dataset.v; draw(); };
+  $('#rbN').oninput = draw;
+  draw();
 }
 
 async function showMakeResult(batchId){

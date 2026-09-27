@@ -946,14 +946,33 @@ function transferView(fromFactory){
     ${dateField('d')}
     <div class="fld"><label class="fl">ส่งไปที่</label>
       <select id="to">${dests.map(b=>`<option value="${b.id}">${b.kind==='factory'?'🏭 ':''}${esc(b.name)}</option>`).join('')}</select></div>
+    ${fromFactory?`<div class="tabs" id="kind" style="margin:4px 0 12px">
+      <button type="button" data-k="week">📦 ส่งประจำสัปดาห์</button>
+      <button type="button" data-k="rush">🚨 ส่งด่วน</button></div>
+      <div class="xs mut" id="kindHint" style="margin:-4px 0 10px"></div>`:''}
     ${fromFactory?'<div class="note">ช่องจำนวน<b>ว่างไว้ให้กรอกเอง</b> · ดู <b>"แนะนำ"</b> ใต้ชื่อของ แล้วใส่ตามที่หยิบใส่จริง<br>ของที่ไม่ส่ง เว้นว่างได้ · ส่งไม่เต็มกล่อง ใส่เศษในช่องหลัง +</div>':''}
-    <div class="fld"><label class="fl">เหตุผล${fromFactory?' (ไม่บังคับ)':''}</label><input id="rs" placeholder="${fromFactory?'ส่งประจำวัน':'เช่น ของหมดกะทันหัน'}"></div>
+    <div class="fld"><label class="fl">${fromFactory?'หมายเหตุ (ไม่บังคับ)':'เหตุผล'}</label><input id="rs" placeholder="${fromFactory?'เช่น ฝากถุงมือไปด้วย':'เช่น ของหมดกะทันหัน'}"></div>
     <div id="plan"><div class="ldg sm">กำลังคิดให้…</div></div>
     <button class="btn" id="save">ออกใบส่งของ</button>
     <div id="outb" style="margin-top:22px"></div>
   </main>`;
   wire(viewHome);
 
+  // 2 แบบที่ใช้จริง (เจ้าของ 27 ก.ย.): ส่งประจำสัปดาห์ · ส่งด่วน
+  //   ค่าเริ่ม: วันส่งปกติกับวันก่อนหน้า = ประจำสัปดาห์ · วันอื่น = ด่วน
+  let kind = 'week';
+  if(fromFactory){
+    const dow = num((S.set||{}).delivery_dow) || 2, iso = ((new Date(today()+'T00:00:00').getDay()+6)%7)+1;
+    kind = (iso===dow || iso===((dow+5)%7)+1) ? 'week' : 'rush';
+    const paintKind = ()=>{
+      document.querySelectorAll('#kind button').forEach(b=>b.classList.toggle('on', b.dataset.k===kind));
+      $('#kindHint').innerHTML = kind==='rush'
+        ? 'โชว์เฉพาะของที่ใกล้หมด · <b>"แนะนำ (ด่วน)"</b> = พอขายถึงรอบส่งปกติ + เผื่อ 1 วัน'
+        : 'โชว์ทุกรายการ · <b>"แนะนำ"</b> = เติมให้เต็มความจุของสาขา';
+    };
+    paintKind();
+    $('#kind').onclick = e=>{ const b = e.target.closest('button'); if(!b || b.dataset.k===kind) return; kind = b.dataset.k; paintKind(); drawPlan(); };
+  }
   const drawPlan = async ()=>{
     const to = $('#to').value;
     $('#plan').innerHTML = '<div class="ldg sm">กำลังคิดให้…</div>';
@@ -1001,17 +1020,27 @@ function transferView(fromFactory){
             <button type="button" class="btn gh sm2" id="nearLine" style="width:auto;padding:8px 12px">ส่งรายการนี้ใน LINE</button>
           </div></div>`;
       }
+      if(kind==='rush' && !nearIds.size) html += `<div class="note okbox" style="margin-top:10px">✓ ตอนนี้ไม่มีของใกล้หมดที่สาขานี้ · ถ้าจะส่งอะไรเพิ่ม กรอกในรายการด้านล่างได้เลย</div>`;
     }
     for(const r of rows){
       if(r.cat!==cat){ cat=r.cat; html += `<div class="card" data-cathd="${esc(cat)}" style="padding:12px 14px;margin:14px 0 8px"><h3 style="margin:0">${esc(cat)}</h3></div>`; }
       const byMajor = r.bpm>1;
       const have = oh(r.id);
       // เลขแนะนำโชว์ให้ดู แต่ไม่กรอกให้ — คนจัดของต้องพิมพ์เองทุกครั้ง (เจ้าของสั่ง 25 ก.ย.)
-      const sugQ = byMajor ? num(r.sendMajor) : num(r.sendBase);
+      let sugQ = byMajor ? num(r.sendMajor) : num(r.sendBase), sugTag = 'แนะนำ';
+      if(fromFactory && kind==='rush'){
+        // ด่วน: เฉพาะของใกล้หมด · พอขายถึงรอบส่งปกติ + เผื่อ 1 วัน (ไม่เกินที่ว่างในตู้ถ้ามีความจุ)
+        const x = rwMap.get(r.id); sugQ = 0; sugTag = 'แนะนำ (ด่วน)';
+        if(x && nearIds.has(r.id)){
+          let need = Math.ceil(num(x.per_day) * (num(x.days_needed) + 1) - Math.max(num(x.on_hand),0));
+          if(r.target > 0) need = Math.min(need, Math.max(0, Math.ceil(r.target - Math.max(num(x.on_hand),0))));
+          if(need > 0) sugQ = byMajor ? Math.ceil(need / r.bpm) : need;
+        }
+      }
       const sug = fromFactory && sugQ > 0;
       html += `<div class="li" data-row="${r.id}" data-cat="${esc(r.cat)}" data-bpm="${r.bpm}" data-major="${byMajor?1:0}"${sug?' data-sug="1"':''}${nearIds.has(r.id)?' data-near="1"':''}>
         <div class="nm">${esc(r.label)}
-          <small>${sug ? `<b class="sug">แนะนำ ${fmt(sugQ)} ${esc(byMajor?r.um:r.ub)}</b> · ` : ''}ที่นี่มี ${esc(boxTxt(have, r.bpm, r.um, r.ub))}${
+          <small>${sug ? `<b class="sug">${sugTag} ${fmt(sugQ)} ${esc(byMajor?r.um:r.ub)}</b> · ` : ''}ที่นี่มี ${esc(boxTxt(have, r.bpm, r.um, r.ub))}${
             r.share!=null?` · สาขาขายได้ ${r.share}%`:''}${
             rwMap.has(r.id) ? ' · ' + rwNote(rwMap.get(r.id)) : ''}${
             r.cat==='ของใช้' && r.there!=null ? ` · <span class="${num(r.there)<=0?'diffneg':''}">${num(r.there)<=0?'⚫ ':''}สาขามี ${esc(boxTxt(r.there, r.bpm, r.um, r.ub))}</span>` : ''}</small></div>
@@ -1026,6 +1055,7 @@ function transferView(fromFactory){
     $('#plan').innerHTML = html;
     const no = $('#nearOnly');
     if(no){ let only = false;
+      if(kind==='rush') setTimeout(()=>no.click(), 0);
       no.onclick = ()=>{ only = !only; no.textContent = only ? 'ดูทุกรายการ' : 'ดูเฉพาะรายการนี้';
         document.querySelectorAll('#plan .li[data-row]').forEach(li=>{ li.style.display = (!only || li.dataset.near || li.querySelector('.qs').value!=='') ? '' : 'none'; });
         document.querySelectorAll('#plan [data-cathd]').forEach(h=>{ const c = h.dataset.cathd;
@@ -1081,7 +1111,7 @@ function transferView(fromFactory){
     busy(e.target,true);
     const { data, error } = await sb.rpc('fn_save_transfer',{
       p_from:S.loc.id, p_to:$('#to').value, p_on:$('#d').value,
-      p_reason:$('#rs').value, p_photo:'', p_lines:lines
+      p_reason: fromFactory ? [kind==='rush'?'ส่งด่วน':'ส่งประจำสัปดาห์', $('#rs').value.trim()].filter(Boolean).join(' · ') : $('#rs').value, p_photo:'', p_lines:lines
     });
     busy(e.target,false,'ออกใบส่งของ');
     if(error) return toast(errMsg(error),'bad');
@@ -1090,14 +1120,14 @@ function transferView(fromFactory){
     const toName = $('#to').selectedOptions[0].textContent.replace('🏭 ','').trim();
     await loadOnHand(S.loc.id);
     drawPlan(); drawOut();
-    shareSlip(slipText({ doc, from: S.loc.name, to: toName, on: $('#d').value, by: S.me.nickname, lines: slip }), doc);
+    shareSlip(slipText({ doc, from: S.loc.name, to: toName, on: $('#d').value, by: S.me.nickname, lines: slip, kind: fromFactory ? kind : null }), doc);
   };
 }
 
 /* ---------- ใบส่งของ → ส่งใน LINE (เจ้าของสั่ง 25 ก.ย.: มีจำนวน · สาขาเช็กว่าได้ครบไหม) ---------- */
 function slipText(s){
   const d = s.on ? new Date(s.on+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'2-digit'}) : '';
-  let t = `📦 ใบส่งของ ${s.doc}\n${s.from} → ${s.to}\n${d} · ออกโดย ${s.by}\n`;
+  let t = `${s.kind==='rush' ? '🚨 ส่งด่วน · ' : s.kind==='week' ? '📦 ส่งประจำสัปดาห์ · ' : '📦 '}ใบส่งของ ${s.doc}\n${s.from} → ${s.to}\n${d} · ออกโดย ${s.by}\n`;
   if(s.lines){
     let cat = null;
     s.lines.forEach(l=>{

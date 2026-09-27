@@ -136,6 +136,13 @@ hr.d{border:none;border-top:1px solid var(--line);margin:14px 0}
   padding:9px;font-size:13.5px;font-family:inherit;cursor:pointer}
 .tabs button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
 .empty{color:var(--mut);font-size:12.5px;padding:6px 0}
+.bsel{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.bsel button{background:var(--card2);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:8px 13px;font-size:13.5px;font-family:inherit;cursor:pointer}
+.bsel button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+.bub{background:var(--card2);border:1px solid var(--line);border-radius:16px 16px 16px 4px;padding:11px 13px;margin:0 0 12px;max-width:94%}
+.bub .bt{white-space:pre-wrap;font-size:14px;line-height:1.55}
+.bub .ba{display:flex;gap:8px;margin-top:10px}
+.bub .ba .btn{width:auto;padding:7px 12px;margin:0}
 /* ---- เช็กลิสต์ ---- */
 .ck{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}
 .ck:last-child{border-bottom:none}
@@ -215,7 +222,7 @@ const SCREENS = [
   {id:'make',  ic:'🥣', nm:'ทำไส้',              sb:'บันทึกไส้ที่ทำได้วันนี้ (กก.)',        at:'factory'},
   {id:'roll',  ic:'🌯', nm:'ม้วน',               sb:'เบิกไส้ · ม้วนได้กี่ชิ้น · ใครม้วน',   at:'factory'},
   {id:'sauce', ic:'🥫', nm:'ผสม / แบ่งบรรจุ',   sb:'Dip · เทเทอร์ท็อต — กรอกวัตถุดิบหลักตัวเดียว', at:'factory'},
-  {id:'ship',  ic:'🚚', nm:'จัดของส่งสาขา',     sb:'ระบบคิดให้ว่าส่งอะไรกี่ถุง',            at:'factory'},
+  {id:'ship',  ic:'🚚', nm:'จัดของส่งสาขา',     sb:'แชทจัดของ · แล้วกรอกที่ส่งจริง',            at:'factory'},
   {id:'recv',  ic:'📥', nm:'รับของคืนจากสาขา',  sb:'ตรวจของที่สาขาส่งกลับมา',               at:'factory'},
   {id:'count', ic:'📋', nm:'นับสต๊อกโรงงาน',    sb:'นับของจริง แล้วเทียบกับที่ควรเหลือ',   at:'factory'},
   {id:'inn',   ic:'📥', nm:'ของเข้าโรงงาน',      sb:'ซื้อวัตถุดิบเข้า หรือเจ้าของทำเองมาส่ง', at:'factory'},
@@ -932,7 +939,249 @@ function scSauce(){
 /* ============================================================
    5 · จัดของส่งสาขา  /  ส่งของไปสาขาอื่น
    ============================================================ */
-function scShip(){ transferView(true); }
+/* ---------- จัดของส่งสาขา (โรงงาน) · 2 ขั้น (เจ้าของ 27 ก.ย.)
+   "ต้องการทำออกมาเป็นแชทแนะนำเลย ว่าหน้างานจริงต้องจัดของยังไง แล้วส่งจริงเท่าไหร่ ค่อยมากรอก"
+   "เลือกส่งสาขาไหนบ้าง หรือทุกสาขาเลย · แชทที่จัดง่าย · หลังบ้านค่อยไปกรอก · หลังบ้าน lean กว่านี้"
+   1) 💬 แชทจัดของ  : เลือกสาขา (หลายสาขา/ทุกสาขา) → ข้อความให้คนจัดหยิบตาม · ส่ง LINE / คัดลอก
+   2) ✍️ กรอกที่ส่งจริง: ช่องว่าง พิมพ์เองทุกตัว (เจ้าของสั่ง 25 ก.ย.) · โชว์เฉพาะรายการในแชท ที่เหลือซ่อนไว้
+   ---------- */
+async function shipPlan(to, kind, on, rw){
+  const { data, error } = await sb.rpc('fn_delivery_plan',{ p_branch:to, p_as_of:on });
+  if(error) throw error;
+  const rows = (data||[]).map(r=>({ id:r.stock_item_id, label:r.label, cat:r.category,
+    ub:r.unit_base, um:r.unit_major, bpm:num(r.base_per_major), target:num(r.target_base), there:num(r.on_hand_base),
+    sendMajor: r.send_major==null?null:num(r.send_major), sendBase:num(r.send_base) }));
+  const mine = rw.filter(x=>x.branch_id===to), rwMap = new Map(mine.map(x=>[x.stock_item_id, x]));
+  const near = mine.filter(x=>LV[x.level]!==undefined);
+  const outIds = new Set(rows.filter(r=>r.cat==='ของใช้' && r.there<=0 && !rwMap.has(r.id)).map(r=>r.id));
+  const nearIds = new Set([...near.map(x=>x.stock_item_id), ...outIds]);
+  let flags = [];
+  try{ const fs = await sb.rpc('fn_supply_status',{ p_branch:to });
+       flags = (fs.data||[]).filter(r=>r.status!=='ok').sort((a,b)=>a.sort_order-b.sort_order); }catch(e){}
+  rows.forEach(r=>{
+    r.byMajor = r.bpm>1; r.unit = r.byMajor ? r.um : r.ub;
+    r.rw = rwMap.get(r.id) || null; r.near = nearIds.has(r.id); r.out = outIds.has(r.id);
+    let q = r.byMajor ? num(r.sendMajor) : num(r.sendBase);
+    if(kind==='rush'){
+      // ด่วน: เฉพาะของใกล้หมด · พอขายถึงรอบส่งปกติ + เผื่อ 1 วัน (ไม่เกินที่ว่างในตู้ถ้ามีความจุ)
+      q = 0; const x = r.rw;
+      if(x && r.near){
+        let need = Math.ceil(num(x.per_day) * (num(x.days_needed) + 1) - Math.max(num(x.on_hand),0));
+        if(r.target > 0) need = Math.min(need, Math.max(0, Math.ceil(r.target - Math.max(num(x.on_hand),0))));
+        if(need > 0) q = r.byMajor ? Math.ceil(need / r.bpm) : need;
+      }
+    }
+    r.sug = q > 0 ? q : 0;
+    r.inChat = r.sug > 0 || (r.near && (kind==='rush' || r.out));
+  });
+  const nd = near.length ? near[0].next_delivery : null;
+  return { to, rows, flags, nd };
+}
+const shipIcon = r => r.out ? '⚫' : (r.rw && LV[r.rw.level]!==undefined ? rwIcon(r.rw) : '');
+const shipQty = r => r.sug > 0 ? `${fmt(r.sug)} ${r.unit}` : '';
+const shipWhy = r => r.out ? 'สาขานับได้ 0' : r.rw ? `เหลือ ${fmt(r.rw.on_hand)} · พอ${r.rw.src==='นับ'?'ใช้':'ขาย'} ~${fmt(r.rw.days_left,1)} วัน` : '';
+const shipHead = (kind, on) => `${kind==='rush' ? '🚨 ส่งด่วน' : '📦 ส่งประจำสัปดาห์'} · ${dnext(on)}`;
+function shipBranchText(p, bname, kind, on){
+  const it = p.rows.filter(r=>r.inChat);
+  let t = `${shipHead(kind, on)}\n🏪 ${bname}${it.length?` · ${it.length} รายการ`:''}\n`;
+  if(!it.length) t += `\n✓ ${kind==='rush' ? 'ไม่มีของใกล้หมด' : 'ไม่มีอะไรต้องเติม'}\n`;
+  let cat = null;
+  it.forEach(r=>{
+    if(r.cat!==cat){ cat = r.cat; t += `\n${cat}\n`; }
+    const ic = shipIcon(r), q = shipQty(r);
+    t += `☐ ${rwShort(r.label)}  ${q || '(ใส่ตามเห็นสมควร)'}${ic?'  '+ic:''}${!q && shipWhy(r) ? ' · '+shipWhy(r) : ''}\n`;
+  });
+  if(p.flags.length) t += `\n🧴 สาขาแจ้ง: ${p.flags.map(f=>`${f.label} ${f.status==='out'?'หมด':'ใกล้หมด'}`).join(' · ')}\n`;
+  if(it.length) t += `\n👉 จัดเสร็จ ส่งแล้ว แจ้งหลังบ้านว่าส่งจริงเท่าไหร่`;
+  return t.trim();
+}
+function shipPickText(plans, names, kind, on){
+  // รวมยอดที่ต้องหยิบจากโรงงาน (ก่อนแบ่งใส่ลังแต่ละสาขา) · บอกถ้าโรงงานมีไม่พอ
+  const m = new Map();
+  plans.forEach(p=>p.rows.filter(r=>r.sug>0).forEach(r=>{
+    const g = m.get(r.id) || { r, tot:0, by:[] };
+    g.tot += r.sug; g.by.push(`${names[p.to].short} ${fmt(r.sug)}`); m.set(r.id, g);
+  }));
+  if(!m.size) return '';
+  let t = `🧺 หยิบรวมจากโรงงาน · ${shipHead(kind, on)}\n${plans.length} สาขา: ${plans.map(p=>names[p.to].short).join(' · ')}\n`, cat = null;
+  [...m.values()].forEach(g=>{
+    if(g.r.cat!==cat){ cat = g.r.cat; t += `\n${cat}\n`; }
+    const need = g.tot * (g.r.byMajor ? g.r.bpm : 1), have = oh(g.r.id);
+    t += `• ${rwShort(g.r.label)}  ${fmt(g.tot)} ${g.r.unit}  (${g.by.join(' · ')})${need > have ? `\n   ⚠️ โรงงานมี ${boxTxt(Math.max(have,0), g.r.bpm, g.r.um, g.r.ub)}` : ''}\n`;
+  });
+  return t.trim();
+}
+
+function scShip(){
+  const dests = S.M.branches.filter(b=>b.id!==S.loc.id && b.kind!=='factory');
+  if(!dests.length){ toast('ไม่มีปลายทางให้ส่ง','bad'); return viewHome(); }
+  const names = {}; dests.forEach(b=>{ names[b.id] = { name:b.name, short: b.code || b.name }; });
+  let picked = null;
+  try{ picked = JSON.parse(localStorage.getItem('shipBrs')||'null'); }catch(e){}
+  picked = new Set((picked||dests.map(b=>b.id)).filter(id=>names[id]));
+  if(!picked.size) dests.forEach(b=>picked.add(b.id));
+  const dow = num((S.set||{}).delivery_dow) || 2, iso = ((new Date(today()+'T00:00:00').getDay()+6)%7)+1;
+  let kind = (iso===dow || iso===((dow+5)%7)+1) ? 'week' : 'rush', step = 'chat', rw = null;
+  const cache = new Map();
+  const getPlan = async to => { const k = to+'|'+kind+'|'+$('#d').value;
+    if(!cache.has(k)){ if(!rw) rw = await loadRunway(); cache.set(k, await shipPlan(to, kind, $('#d').value, rw)); }
+    return cache.get(k); };
+
+  app.innerHTML = header('จัดของส่งสาขา', S.loc.name, viewHome) + `<main>
+    <div class="tabs" id="step">
+      <button type="button" data-s="chat">💬 1 · แชทจัดของ</button>
+      <button type="button" data-s="fill">✍️ 2 · กรอกที่ส่งจริง</button></div>
+    <div class="tabs" id="kind" style="margin:0 0 6px">
+      <button type="button" data-k="week">📦 ส่งประจำสัปดาห์</button>
+      <button type="button" data-k="rush">🚨 ส่งด่วน</button></div>
+    <div class="xs mut" id="kindHint" style="margin:0 0 12px"></div>
+    ${dateField('d')}
+    <section id="sChat">
+      <label class="fl">ส่งสาขาไหนบ้าง</label>
+      <div class="bsel" id="brs">
+        <button type="button" data-all="1">ทุกสาขา</button>
+        ${dests.map(b=>`<button type="button" data-b="${b.id}">${esc(b.name)}</button>`).join('')}
+      </div>
+      <button class="btn" id="mk" style="margin-top:12px">สร้างแชทจัดของ</button>
+      <div id="chat" style="margin-top:14px"></div>
+    </section>
+    <section id="sFill" hidden>
+      <div class="fld"><label class="fl">ส่งไปที่</label>
+        <select id="to">${dests.map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="xs mut" style="margin:-4px 0 10px">ช่องจำนวน<b>ว่างไว้</b> · ใส่ตามที่ส่งจริง · ตัวไหนไม่ได้ส่ง เว้นว่าง · ส่งไม่เต็มกล่อง ใส่เศษในช่องหลัง +</div>
+      <div id="plan"></div>
+      <div class="fld" style="margin-top:12px"><label class="fl">หมายเหตุ (ไม่บังคับ)</label><input id="rs" placeholder="เช่น ฝากถุงมือไปด้วย"></div>
+      <button class="btn" id="save">ออกใบส่งของ</button>
+    </section>
+    <div id="outb" style="margin-top:22px"></div>
+  </main>`;
+  wire(viewHome);
+
+  const paint = ()=>{
+    document.querySelectorAll('#step button').forEach(b=>b.classList.toggle('on', b.dataset.s===step));
+    document.querySelectorAll('#kind button').forEach(b=>b.classList.toggle('on', b.dataset.k===kind));
+    $('#kindHint').innerHTML = kind==='rush'
+      ? 'เฉพาะของใกล้หมด (🔴🟠🟡⚫) · จำนวน = พอขายถึงรอบส่งปกติ + เผื่อ 1 วัน'
+      : 'ทุกรายการที่ต้องเติม · จำนวน = เติมให้เต็มความจุของสาขา';
+    document.querySelectorAll('#brs [data-b]').forEach(b=>b.classList.toggle('on', picked.has(b.dataset.b)));
+    $('#brs [data-all]').classList.toggle('on', picked.size===dests.length);
+    $('#sChat').hidden = step!=='chat'; $('#sFill').hidden = step!=='fill';
+  };
+  const savePick = ()=>{ try{ localStorage.setItem('shipBrs', JSON.stringify([...picked])); }catch(e){} };
+
+  /* ---- 1) แชทจัดของ ---- */
+  const bubble = (t, id) => `<div class="bub" data-bub="${id}"><div class="bt">${esc(t)}</div>
+    <div class="ba"><button type="button" class="btn sm2" data-line="${id}" style="background:#06C755">ส่งใน LINE</button>
+    <button type="button" class="btn gh sm2" data-copy="${id}">คัดลอก</button></div></div>`;
+  let texts = {};
+  const makeChat = async ()=>{
+    if(!picked.size) return toast('เลือกสาขาก่อน','bad');
+    const box = $('#chat'); box.innerHTML = '<div class="ldg sm">กำลังจัดรายการให้…</div>';
+    const on = $('#d').value, ids = dests.map(b=>b.id).filter(id=>picked.has(id));
+    let plans;
+    try{ plans = await Promise.all(ids.map(getPlan)); }
+    catch(e){ box.innerHTML = `<div class="note err">${esc(errMsg(e))}</div>`; return; }
+    texts = {};
+    const pick = plans.length > 1 ? shipPickText(plans, names, kind, on) : '';
+    if(pick) texts.pick = pick;
+    plans.forEach(p=>{ texts[p.to] = shipBranchText(p, names[p.to].name, kind, on); });
+    const nItems = plans.reduce((a,p)=>a+p.rows.filter(r=>r.inChat).length, 0);
+    box.innerHTML = `<div class="xs mut" style="margin-bottom:6px">${plans.length} สาขา · ${nItems} รายการ${plans[0]&&plans[0].nd?` · รอบส่งปกติ ${dnext(plans[0].nd)}`:''} · ส่งทีละสาขาเข้า LINE คนจัดของ หรือคัดลอกทั้งหมด</div>
+      ${pick ? bubble(pick, 'pick') : ''}
+      ${plans.map(p=>bubble(texts[p.to], p.to)).join('')}
+      <button type="button" class="btn gh sm2" id="cpAll" style="margin-top:6px">คัดลอกทั้งหมด</button>
+      <button type="button" class="btn" id="goFill" style="margin-top:10px">จัดเสร็จแล้ว → ✍️ กรอกที่ส่งจริง</button>`;
+    $('#cpAll').onclick = ()=>copyTxt(Object.values(texts).join('\n\n— — —\n\n'));
+    $('#goFill').onclick = ()=>{ step = 'fill'; paint(); $('#to').value = ids[0]; drawFill(); window.scrollTo(0,0); };
+  };
+  const copyTxt = async t => { try{ await navigator.clipboard.writeText(t); toast('คัดลอกแล้ว · ไปวางในแชท LINE ได้เลย','ok'); }
+                               catch(e){ toast('คัดลอกไม่ได้ · กดค้างที่ข้อความแล้วเลือกคัดลอก','bad'); } };
+  $('#chat').onclick = e=>{
+    const l = e.target.closest('[data-line]'); if(l) return window.open('https://line.me/R/share?text=' + encodeURIComponent(texts[l.dataset.line]||''), '_blank');
+    const c = e.target.closest('[data-copy]'); if(c) return copyTxt(texts[c.dataset.copy]||'');
+  };
+  $('#brs').onclick = e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    if(b.dataset.all){ if(picked.size===dests.length) picked.clear(); else dests.forEach(d=>picked.add(d.id)); }
+    else if(picked.has(b.dataset.b)) picked.delete(b.dataset.b); else picked.add(b.dataset.b);
+    savePick(); paint(); $('#chat').innerHTML = '';
+  };
+  $('#mk').onclick = makeChat;
+
+  /* ---- 2) กรอกที่ส่งจริง (lean) ---- */
+  const drawFill = async ()=>{
+    const box = $('#plan'); box.innerHTML = '<div class="ldg sm">กำลังโหลด…</div>';
+    let p; try{ p = await getPlan($('#to').value); }catch(e){ box.innerHTML = `<div class="note err">${esc(errMsg(e))}</div>`; return; }
+    const main = p.rows.filter(r=>r.inChat), rest = p.rows.filter(r=>!r.inChat);
+    const row = r => `<div class="li" data-row="${r.id}" data-bpm="${r.bpm}" data-major="${r.byMajor?1:0}"${r.inChat?' data-chat="1"':''}>
+        <div class="nm">${esc(r.label)}<small>${r.inChat ? `<b class="sug">แชท: ${shipQty(r) || 'ตามเห็นสมควร'}</b>${shipIcon(r)?' '+shipIcon(r):''} · ` : ''}โรงงานมี ${esc(boxTxt(oh(r.id), r.bpm, r.um, r.ub))}</small></div>
+        <input type="number" inputmode="numeric" min="0" step="1" class="qs" placeholder=" " value="" style="width:${r.byMajor?58:72}px">
+        <div class="u">${esc(r.unit)}</div>
+        ${r.byMajor?`<span class="plus">+</span>
+        <input type="number" inputmode="numeric" min="0" step="1" class="qr" placeholder="0" style="width:58px">
+        <div class="u">${esc(r.ub)}</div>`:''}
+      </div>`;
+    let cat = '', restHtml = '';
+    rest.forEach(r=>{ if(r.cat!==cat){ cat = r.cat; restHtml += `<div class="xs mut" style="margin:12px 0 2px;font-weight:600">${esc(cat)}</div>`; } restHtml += row(r); });
+    box.innerHTML = `<div class="card" style="padding:12px 14px">
+        <h3 style="margin:0 0 4px">ตามแชท (${main.length})</h3>
+        ${main.length ? main.map(row).join('') : `<div class="empty">ไม่มีรายการในแชท${kind==='rush'?' (ไม่มีของใกล้หมด)':''}</div>`}</div>
+      ${rest.length ? `<button type="button" class="btn gh sm2" id="more" style="margin:10px 0 0">+ ส่งรายการอื่นด้วย (${rest.length})</button>
+      <div id="rest" hidden>${restHtml}</div>` : ''}`;
+    const mo = $('#more'); if(mo) mo.onclick = ()=>{ $('#rest').hidden = false; mo.remove(); };
+    box.oninput = tally; tally();
+  };
+  const tally = ()=>{
+    const short = [];
+    document.querySelectorAll('#plan .li[data-row]').forEach(li=>{
+      const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1', rq = li.querySelector('.qr');
+      const q = num(li.querySelector('.qs').value) * (byM?bpm:1) + (rq?num(rq.value):0);
+      const bad = q > oh(li.dataset.row);
+      li.querySelector('.qs').style.borderColor = bad ? 'var(--bad)' : ''; if(rq) rq.style.borderColor = bad ? 'var(--bad)' : '';
+      if(bad) short.push(li.querySelector('.nm').childNodes[0].textContent.trim());
+    });
+    const w = $('#warn'); if(w) w.remove();
+    if(short.length){ const d = document.createElement('div'); d.id='warn'; d.className='note err'; d.style.marginTop='12px';
+      d.textContent = 'โรงงานมีไม่พอ: '+short.join(', ')+' — ส่วนที่ขาดจะถูกบันทึกเป็น "ค้างส่ง"'; $('#plan').appendChild(d); }
+  };
+  $('#save').onclick = async e=>{
+    const lines = [], slip = [];
+    document.querySelectorAll('#plan .li[data-row]').forEach(li=>{
+      const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1', rq = li.querySelector('.qr');
+      const want = num(li.querySelector('.qs').value) * (byM?bpm:1) + (rq?num(rq.value):0);
+      if(want<=0) return;
+      const sent = Math.min(want, oh(li.dataset.row)), it = item(li.dataset.row) || {};
+      lines.push({ item: li.dataset.row, sent, short: Math.max(0, want-sent) });
+      slip.push({ label: it.label || li.querySelector('.nm').childNodes[0].textContent.trim(), cat: it.catname || '',
+                  bpm, um: it.um || '', ub: it.ub || '', sent, short: Math.max(0, want-sent) });
+    });
+    if(!lines.length) return toast('ยังไม่ได้ใส่จำนวน','bad');
+    busy(e.target,true);
+    const to = $('#to').value;
+    const { data, error } = await sb.rpc('fn_save_transfer',{ p_from:S.loc.id, p_to:to, p_on:$('#d').value,
+      p_reason: [kind==='rush'?'ส่งด่วน':'ส่งประจำสัปดาห์', $('#rs').value.trim()].filter(Boolean).join(' · '), p_photo:'', p_lines:lines });
+    busy(e.target,false,'ออกใบส่งของ');
+    if(error) return toast(errMsg(error),'bad');
+    const doc = (data && data[0] && data[0].doc_no) || '';
+    toast(`ออกใบส่งของ ${doc} แล้ว · ${lines.length} รายการ`,'ok');
+    await loadOnHand(S.loc.id);
+    cache.clear(); $('#rs').value = '';
+    shareSlip(slipText({ doc, from:S.loc.name, to:names[to].name, on:$('#d').value, by:S.me.nickname, lines:slip, kind }), doc);
+    // ไปสาขาถัดไปที่เลือกไว้ในแชท
+    const ids = dests.map(b=>b.id).filter(id=>picked.has(id)), i = ids.indexOf(to);
+    if(i>=0 && i<ids.length-1) $('#to').value = ids[i+1];
+    drawFill(); loadOutbound($('#d').value);
+  };
+
+  $('#step').onclick = e=>{ const b = e.target.closest('button'); if(!b || b.dataset.s===step) return; step = b.dataset.s; paint();
+    if(step==='fill') drawFill(); };
+  $('#kind').onclick = e=>{ const b = e.target.closest('button'); if(!b || b.dataset.k===kind) return; kind = b.dataset.k; paint();
+    if($('#chat').innerHTML) makeChat(); if(step==='fill') drawFill(); };
+  $('#to').onchange = drawFill;
+  $('#d').onchange = ()=>{ cache.clear(); if($('#chat').innerHTML) makeChat(); if(step==='fill') drawFill(); loadOutbound($('#d').value); };
+  paint(); loadOutbound($('#d').value);
+}
+
 function scB2B(){ transferView(false); }
 
 function transferView(fromFactory){

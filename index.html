@@ -1233,7 +1233,7 @@ function scShip(){
     });
     const w = $('#warn'); if(w) w.remove();
     if(short.length){ const d = document.createElement('div'); d.id='warn'; d.className='note err'; d.style.marginTop='12px';
-      d.textContent = 'โรงงานมีไม่พอ: '+short.join(', ')+' — ส่วนที่ขาดจะถูกบันทึกเป็น "ค้างส่ง"'; $('#plan').appendChild(d); }
+      d.textContent = 'เกินที่โรงงานมีในระบบ: '+short.join(', ')+' — บันทึกตามที่กรอกได้เลย · สต๊อกโรงงานจะติดลบจนกว่าจะบันทึกผลิต (อย่าลืมกรอกผลิตตอนจบวัน)'; $('#plan').appendChild(d); }
   };
   $('#save').onclick = async e=>{
     const lines = [], slip = [];
@@ -1241,7 +1241,8 @@ function scShip(){
       const bpm = num(li.dataset.bpm), byM = li.dataset.major==='1', rq = li.querySelector('.qr');
       const want = num(li.querySelector('.qs').value) * (byM?bpm:1) + (rq?num(rq.value):0);
       if(want<=0) return;
-      const sent = Math.min(want, oh(li.dataset.row)), it = item(li.dataset.row) || {};
+      // ยึดเลขที่กรอก (เจ้าของ 28 ก.ย.: ผลิตปุ๊บส่งปั๊บ แล้วมากรอกผลิตตอนจบวัน) — ไม่ตัดตามที่โรงงานมีในระบบ
+      const sent = want, it = item(li.dataset.row) || {};
       lines.push({ item: li.dataset.row, sent, short: Math.max(0, want-sent) });
       slip.push({ label: it.label || li.querySelector('.nm').childNodes[0].textContent.trim(), cat: it.catname || '',
                   bpm, um: it.um || '', ub: it.ub || '', sent, short: Math.max(0, want-sent) });
@@ -1423,7 +1424,7 @@ function transferView(fromFactory){
     if(short.length){
       const d = document.createElement('div');
       d.id='warn'; d.className='note err'; d.style.marginTop='12px';
-      d.textContent = 'ของไม่พอ: '+short.join(', ')+' — ส่วนที่ขาดจะถูกบันทึกเป็น "ค้างส่ง"';
+      d.textContent = 'เกินที่ที่นี่มีในระบบ: '+short.join(', ')+' — บันทึกตามที่กรอกได้ · สต๊อกที่นี่จะติดลบจนกว่าจะแก้ยอดนับ';
       $('#plan').appendChild(d);
     }
   };
@@ -1440,7 +1441,7 @@ function transferView(fromFactory){
       const want = num(li.querySelector('.qs').value) * (byM?bpm:1) + (rq?num(rq.value):0);
       if(want<=0) return;
       const have = oh(li.dataset.row);
-      const sent = Math.min(want, have);
+      const sent = want;   // ยึดเลขที่กรอก (เจ้าของ 28 ก.ย.)
       lines.push({ item: li.dataset.row, sent, short: Math.max(0, want-sent) });
       const it = item(li.dataset.row) || {};
       slip.push({ label: it.label || li.querySelector('.nm').childNodes[0].textContent.trim(), cat: it.catname || '',

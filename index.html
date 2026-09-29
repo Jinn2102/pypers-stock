@@ -201,9 +201,14 @@ async function loadRunway(){
   try{ const { data, error } = await sb.rpc('fn_runway', { p_as_of: today() }); return error ? [] : (data||[]); }catch(e){ return []; }
 }
 const rwIcon = x => x.level==='red' ? '🔴' : x.level==='orange' ? '🟠' : '🟡';
-const rwLine = x => `${rwIcon(x)} <b>${esc(rwShort(x.label))}</b> เหลือ ${fmt(x.on_hand)} · ขายวันละ ~${fmt(x.per_day,1)} → หมดราว ${ddmm(x.runs_out_on)}`;
+// "ขั้นต่ำ" (เจ้าของตั้ง 29/09 · item_minimums) — ต่ำกว่าขั้นต่ำ = 🔴 ไม่ขึ้นกับยอดขาย
+const rwMinTxt = x => { const bpm = num(x.base_per_major); return x.unit_major && bpm > 1 ? `${fmt(num(x.min_base)/bpm, 2)} ${x.unit_major}` : `${fmt(x.min_base, 2)} ${x.unit_base}`; };
+const rwHave = x => boxTxt(Math.max(num(x.on_hand),0), num(x.base_per_major)||1, x.unit_major||'', x.unit_base||'');
+const rwLine = x => x.src==='ขั้นต่ำ'
+  ? `🔴 <b>${esc(rwShort(x.label))}</b> มี ${esc(rwHave(x))} · ต่ำกว่าขั้นต่ำ ${esc(rwMinTxt(x))}`
+  : `${rwIcon(x)} <b>${esc(rwShort(x.label))}</b> เหลือ ${fmt(x.on_hand)} · ${x.src==='นับ'?'ใช้':'ขาย'}วันละ ~${fmt(x.per_day,1)} → หมดราว ${ddmm(x.runs_out_on)}`;
 const rwHot = rw => rw.filter(x=>x.level==='red' || x.level==='orange').sort((a,b)=>(a.level===b.level?0:(a.level==='red'?-1:1)) || num(a.days_left)-num(b.days_left));
-const rwNote = x => `<span class="${x.level==='red'?'diffneg':(x.level==='orange'||x.level==='yellow'?'diffpos':'mut')}">${x.level!=='ok'?rwIcon(x)+' ':''}พอ${x.src==='นับ'?'ใช้':'ขาย'} ~${fmt(x.days_left,1)} วัน</span>`;
+const rwNote = x => x.src==='ขั้นต่ำ' ? `<span class="diffneg">🔴 ต่ำกว่าขั้นต่ำ ${esc(rwMinTxt(x))}</span>` : `<span class="${x.level==='red'?'diffneg':(x.level==='orange'||x.level==='yellow'?'diffpos':'mut')}">${x.level!=='ok'?rwIcon(x)+' ':''}พอ${x.src==='นับ'?'ใช้':'ขาย'} ~${fmt(x.days_left,1)} วัน</span>`;
 const LV = { red:0, orange:1, yellow:2 };
 const today = () => new Date().toLocaleDateString('sv-SE');
 const LOCKMIN = 15, MAXTRY = 5;
@@ -561,11 +566,12 @@ function lineRow(it, opts={}){
 /* 440 ชิ้น (กล่องละ 60) -> "7 กล่อง + 20 ชิ้น" */
 function boxTxt(qty, bpm, um, ub){
   qty = num(qty); bpm = num(bpm);
-  if(!(bpm>1)) return `${fmt(qty, ub==='กก.'?1:0)} ${ub}`;
+  const dp = ub==='กก.' ? 1 : ub==='ลิตร' ? 2 : 0;   // ลิตร (น้ำมันทอด) โชว์ทศนิยม
+  if(!(bpm>1)) return `${fmt(qty, dp)} ${ub}`;
   const M = Math.floor(qty/bpm), r = +(qty - M*bpm).toFixed(3);
-  if(M && r) return `${fmt(M)} ${um} + ${fmt(r)} ${ub}`;
+  if(M && r) return `${fmt(M)} ${um} + ${fmt(r, dp)} ${ub}`;
   if(M) return `${fmt(M)} ${um}`;
-  return `${fmt(r)} ${ub}`;
+  return `${fmt(r, dp)} ${ub}`;
 }
 function collect(sel){
   return [...document.querySelectorAll(sel+' input[data-item]')]
@@ -1060,6 +1066,11 @@ async function shipPlan(to, kind, on, rw){
         if(need > 0) q = r.byMajor ? Math.ceil(need / r.bpm) : need;
       }
     }
+    // ต่ำกว่าขั้นต่ำ → ส่งให้ถึงขั้นต่ำอย่างน้อย (ทั้ง 2 แบบ)
+    if(r.rw && r.rw.src==='ขั้นต่ำ'){
+      const need = num(r.rw.min_base) - Math.max(num(r.rw.on_hand), 0);
+      if(need > 0) q = Math.max(q, r.byMajor ? Math.ceil(need / r.bpm) : Math.ceil(need));
+    }
     r.sug = q > 0 ? q : 0;
     r.inChat = r.sug > 0 || (r.near && (kind==='rush' || r.out));
   });
@@ -1068,7 +1079,7 @@ async function shipPlan(to, kind, on, rw){
 }
 const shipIcon = r => r.out ? '⚫' : (r.rw && LV[r.rw.level]!==undefined ? rwIcon(r.rw) : '');
 const shipQty = r => r.sug > 0 ? `${fmt(r.sug)} ${r.unit}` : '';
-const shipWhy = r => r.out ? 'สาขานับได้ 0' : r.rw ? `เหลือ ${fmt(r.rw.on_hand)} · พอ${r.rw.src==='นับ'?'ใช้':'ขาย'} ~${fmt(r.rw.days_left,1)} วัน` : '';
+const shipWhy = r => r.out ? 'สาขานับได้ 0' : r.rw && r.rw.src==='ขั้นต่ำ' ? `มี ${rwHave(r.rw)} · ขั้นต่ำ ${rwMinTxt(r.rw)}` : r.rw ? `เหลือ ${fmt(r.rw.on_hand)} · พอ${r.rw.src==='นับ'?'ใช้':'ขาย'} ~${fmt(r.rw.days_left,1)} วัน` : '';
 const shipHead = (kind, on) => `${kind==='rush' ? '🚨 ส่งด่วน' : '📦 ส่งประจำสัปดาห์'} · ${dnext(on)}`;
 // เจ้าของ 27 ก.ย.: "เอารวมทุกสาขา แบ่งแค่ 2 แชท หยิบของ และจัดแบ่งสาขา · ไม่ต้องส่งผ่านลิงก์ LINE ให้เป็นปุ่มคัดลอกเล็กๆ"
 const shipLine = r => { const ic = shipIcon(r), q = shipQty(r);

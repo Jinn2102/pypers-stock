@@ -202,7 +202,7 @@ async function loadRunway(){
 }
 const rwIcon = x => x.level==='red' ? '🔴' : x.level==='orange' ? '🟠' : '🟡';
 // "ขั้นต่ำ" (เจ้าของตั้ง 29/09 · item_minimums) — ต่ำกว่าขั้นต่ำ = 🔴 ไม่ขึ้นกับยอดขาย
-const rwMinTxt = x => { const bpm = num(x.base_per_major); return x.unit_major && bpm > 1 ? `${fmt(num(x.min_base)/bpm, 2)} ${x.unit_major}` : `${fmt(x.min_base, 2)} ${x.unit_base}`; };
+const rwMinTxt = x => { const bpm = num(x.base_per_major); const mb = num(x.min_base); return x.unit_major && bpm > 1 && mb >= bpm && Math.abs(mb/bpm - Math.round(mb/bpm)) < 1e-9 ? `${fmt(mb/bpm)} ${x.unit_major}` : `${fmt(x.min_base, 2)} ${x.unit_base}`; };
 const rwHave = x => boxTxt(Math.max(num(x.on_hand),0), num(x.base_per_major)||1, x.unit_major||'', x.unit_base||'');
 const rwLine = x => x.src==='ขั้นต่ำ'
   ? `🔴 <b>${esc(rwShort(x.label))}</b> มี ${esc(rwHave(x))} · ต่ำกว่าขั้นต่ำ ${esc(rwMinTxt(x))}`

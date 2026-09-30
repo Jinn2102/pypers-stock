@@ -2628,7 +2628,7 @@ async function scStaff(){
     <div id="body"><div class="ldg">กำลังโหลดรายชื่อ…</div></div>
   </main>`;
   wire(viewHome);
-  $('#add').onclick = formStaff;
+  $('#add').onclick = () => formStaff();   // ห้ามส่ง event เข้าไป (เคยทำให้กดเพิ่มแล้วกลายเป็นหน้าแก้ไข → "ไม่รู้ว่าใคร")
   await loadStaff();
 }
 

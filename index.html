@@ -236,6 +236,10 @@ function errMsg(e){
 
 /* ---------------- หน้าจอ ---------------- */
 const SCREENS = [
+  {id:'clock', ic:'🕐', nm:'เช็คชื่อ เข้า-ออกงาน', sb:'ถ่ายรูป + ตำแหน่ง · ไปลงชีตเงินเดือน', at:'factory'},
+  {id:'clock', ic:'🕐', nm:'เช็คชื่อ เข้า-ออกงาน', sb:'ถ่ายรูป + ตำแหน่ง · ไปลงชีตเงินเดือน', at:'branch'},
+  {id:'mine',  ic:'📊', nm:'ข้อมูลของฉัน', sb:'เวลาทำงาน · คอม · เงินแต่ละงวด', at:'factory'},
+  {id:'mine',  ic:'📊', nm:'ข้อมูลของฉัน', sb:'เวลาทำงาน · คอม · เงินแต่ละงวด', at:'branch'},
   {id:'make',  ic:'🥣', nm:'ทำไส้',              sb:'บันทึกไส้ที่ทำได้วันนี้ (กก.)',        at:'factory'},
   {id:'roll',  ic:'🌯', nm:'ม้วน',               sb:'เบิกไส้ · ม้วนได้กี่ชิ้น · ใครม้วน',   at:'factory'},
   {id:'sauce', ic:'🥫', nm:'ผสม / แบ่งบรรจุ',   sb:'Dip · เทเทอร์ท็อต — กรอกวัตถุดิบหลักตัวเดียว', at:'factory'},
@@ -485,6 +489,7 @@ function header(title, sub, onBack){
 function wire(onBack){ const b=$('#_bk'); if(b) b.onclick = onBack; }
 
 const HOME_GROUPS = [
+  ['time',  '🕐 เช็คชื่อ · ของฉัน', ['clock','mine']],
   ['prod',  '🍳 ผลิต',          ['make','roll','sauce','recipe']],
   ['move',  '🚚 ส่ง / รับของ',   ['ship','recv','inn','b2b']],
   ['stock', '📋 สต๊อก',          ['count','waste']],
@@ -496,7 +501,7 @@ function homeGroups(tiles){
       <div class="tx"><b>${esc(t.nm)}</b>${t.badge?`<span class="badge">${esc(t.badge)}</span>`:''}</div></button>`;
   const used = new Set();
   // สาขา: นับสต๊อกเป็นงานหลักทุกวัน → กลุ่มสต๊อกขึ้นก่อน
-  const order = S.loc && S.loc.kind!=='factory' ? [...HOME_GROUPS].sort((x,y)=>(x[0]==='stock'?-1:0)-(y[0]==='stock'?-1:0)) : HOME_GROUPS;
+  const order = S.loc && S.loc.kind!=='factory' ? [...HOME_GROUPS].sort((x,y)=>(x[0]==='time'?-2:(x[0]==='stock'?-1:0))-(y[0]==='time'?-2:(y[0]==='stock'?-1:0))) : HOME_GROUPS;
   let h = order.map(([k, name, ids])=>{
     const ts = ids.map(id=>tiles.find(t=>t.id===id)).filter(Boolean); ts.forEach(t=>used.add(t.id));
     return ts.length ? `<div class="hgrp">${name}</div><div class="tgrid" data-grp="${k}">${ts.map(tile).join('')}</div>` : '';
@@ -546,7 +551,7 @@ async function viewHome(){
   $('#out').onclick = signOut;
   app.querySelector('main').onclick = e => {
     const t = e.target.closest('[data-go]'); if(!t) return;
-    ({make:scMake, recipe:scRecipe, roll:scRoll, sauce:scSauce, ship:scShip,
+    ({clock:scClock, mine:scMine, make:scMake, recipe:scRecipe, roll:scRoll, sauce:scSauce, ship:scShip,
       count:scCount, waste:scWaste, recv:scRecv, b2b:scB2B, inn:scIn, dash:scDash, check:scCheck, line:scLine, staff:scStaff, perf:scPerf})[t.dataset.go]();
   };
 }
@@ -585,6 +590,271 @@ async function done(msg){
 }
 
 /* --- ย่อรูปก่อนอัป --- */
+/* ============================================================
+   🕐 เช็คชื่อ เข้า-ออกงาน
+   บันทึกลงชีตเงินเดือน (Google Apps Script) · ยืนยันตัวตนด้วย token ของ Supabase ที่ฝั่งเซิร์ฟเวอร์
+   ============================================================ */
+const CLOCK_URL = 'https://script.google.com/macros/s/AKfycbzAeu7rEPaxDg04heqO1lPhw31tBsNSADdZQhEZRSlouxCmCvCGrNxgDrfIw113xLJ_rg/exec';
+async function clockApi(body){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session) throw new Error('ล็อกอินหมดอายุ — ออกจากระบบแล้วเข้าใหม่');
+  const r = await fetch(CLOCK_URL, { method:'POST', body: JSON.stringify({ ...body, token: session.access_token }) });
+  if(!r.ok) throw new Error('เชื่อมต่อระบบเช็คชื่อไม่ได้ ('+r.status+')');
+  return r.json();
+}
+function blobB64(b){
+  return new Promise((res,rej)=>{ const fr = new FileReader();
+    fr.onload = ()=>res(String(fr.result).split(',')[1]); fr.onerror = ()=>rej(new Error('อ่านรูปไม่ได้')); fr.readAsDataURL(b); });
+}
+const geoDist = (a1,o1,a2,o2)=>{ const R=6371000, r=Math.PI/180, dA=(a2-a1)*r, dO=(o2-o1)*r;
+  const x = Math.sin(dA/2)**2 + Math.cos(a1*r)*Math.cos(a2*r)*Math.sin(dO/2)**2; return 2*R*Math.atan2(Math.sqrt(x), Math.sqrt(1-x)); };
+const nkey = s => String(s||'').replace(/\s+/g,'');
+
+/* พิมพ์ วันเวลา · ชื่อ · สาขา · GPS ลงบนรูป (แถบดำด้านล่าง) กันเอารูปเก่ามาใช้ */
+function stampPhoto(file, lines){
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const sc = Math.min(1, 1000/Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width*sc); c.height = Math.round(img.height*sc);
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0, c.width, c.height);
+      const fs = Math.max(15, Math.round(c.width/26)), lh = Math.round(fs*1.35), pad = Math.round(fs*.6);
+      const h = lh*lines.length + pad*2;
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, c.height-h, c.width, h);
+      g.fillStyle = '#fff'; g.font = `600 ${fs}px -apple-system, "Noto Sans Thai", sans-serif`; g.textBaseline = 'top';
+      lines.forEach((t, i) => g.fillText(t, pad, c.height - h + pad + i*lh, c.width - pad*2));
+      URL.revokeObjectURL(img.src);
+      c.toBlob(b => b ? res(b) : rej(new Error('ทำรูปไม่สำเร็จ')), 'image/jpeg', .76);
+    };
+    img.onerror = () => rej(new Error('เปิดรูปไม่ได้'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+async function scClock(){
+  const C = { type:null, file:null, lat:null, lng:null, acc:null, geo:null };
+  app.innerHTML = header('เช็คชื่อ', 'เข้า-ออกงาน', viewHome) + `<main>
+    <div class="card" id="ckLast"><span class="mut">กำลังดูรายการล่าสุด…</span></div>
+    <div class="card">
+      <h3>วันนี้กดอะไร</h3>
+      <div class="tabs" id="ckT" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button type="button" data-t="IN" style="padding:16px 8px;font-size:17px">🟢 เข้างาน</button>
+        <button type="button" data-t="OUT" style="padding:16px 8px;font-size:17px">🔴 ออกงาน</button>
+      </div>
+      <div class="xs mut" style="margin-top:10px">ที่: <b>${esc(S.loc.name)}</b> · ถ้าไม่ใช่ ให้กลับหน้าแรกแล้วกด "เปลี่ยน"</div>
+      <div id="ckGps" class="note" style="margin:10px 0 0">📍 กำลังหาตำแหน่ง…</div>
+    </div>
+    <div class="card">
+      <h3>ถ่ายรูปตัวเอง</h3>
+      <div class="xs mut">ถ่ายสดที่หน้าร้าน · ระบบพิมพ์วันเวลา ชื่อ สาขา และพิกัด GPS ลงบนรูปให้เอง</div>
+      <div id="ckPh" style="margin-top:8px;display:flex;align-items:center;justify-content:center;min-height:180px;border:2px dashed var(--line);border-radius:12px;overflow:hidden;cursor:pointer">
+        <span class="mut">📷 แตะเพื่อถ่ายรูป</span>
+      </div>
+      <input id="ckCam" type="file" accept="image/*" capture="user" style="display:none">
+    </div>
+    <div class="fld"><label class="fl">หมายเหตุ (ไม่บังคับ)</label>
+      <textarea id="ckN" rows="2" placeholder="เช่น มาแทนกะ · ลืมกดตอนเช้า · ออกก่อนเพราะ…"></textarea></div>
+    <button class="btn" id="ckGo" disabled>ยืนยัน</button>
+  </main>`;
+  wire(viewHome);
+  const distTxt = () => {
+    if(C.lat==null || !C.geo || !C.geo.lat) return '';
+    const d = Math.round(geoDist(C.lat, C.lng, C.geo.lat, C.geo.lng));
+    return d>=1000 ? (d/1000).toFixed(1)+' กม.' : d+' ม.';
+  };
+  const stampLines = () => {
+    const now = new Date();
+    const dt = now.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' ' + now.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const gps = C.lat!=null ? `GPS ${C.lat.toFixed(5)}, ${C.lng.toFixed(5)} (±${Math.round(C.acc)} ม.)` + (distTxt() ? ` · ห่างร้าน ${distTxt()}` : '') : 'GPS: ไม่ได้รับตำแหน่ง';
+    return [`${C.type==='OUT'?'ออกงาน':'เข้างาน'} · ${S.me.nickname} · ${S.loc.name}`, dt, gps];
+  };
+  let pvTimer = null;
+  const preview = () => {
+    if(!C.file) return;
+    clearTimeout(pvTimer);
+    pvTimer = setTimeout(async () => {
+      try{ const b = await stampPhoto(C.file, stampLines()); const el = $('#ckPh');
+        if(el) el.innerHTML = `<img src="${URL.createObjectURL(b)}" style="width:100%;display:block">`; }catch(e){}
+    }, 150);
+  };
+  const ready = () => { const b = $('#ckGo'); if(b) b.disabled = !(C.type && C.file); };
+  const setT = t => { C.type = t; document.querySelectorAll('#ckT button').forEach(b=>b.classList.toggle('on', b.dataset.t===t)); ready(); preview(); };
+  $('#ckT').onclick = e => { const b = e.target.closest('button'); if(b) setT(b.dataset.t); };
+  $('#ckPh').onclick = () => $('#ckCam').click();
+  $('#ckCam').onchange = e => { const f = e.target.files && e.target.files[0]; if(!f) return; C.file = f; ready(); preview(); };
+  const gpsTxt = () => {
+    const el = $('#ckGps'); if(!el || C.lat==null) return;
+    const b = C.geo;
+    if(!b || !b.lat){ el.textContent = `📍 ได้ตำแหน่งแล้ว (±${Math.round(C.acc)} ม.)`; preview(); return; }
+    const d = Math.round(geoDist(C.lat, C.lng, b.lat, b.lng));
+    el.textContent = d <= (b.radius||300) ? `📍 อยู่ที่ร้าน (${distTxt()})` : `📍 ห่างจากร้าน ${distTxt()} — ยังกดได้ แต่หัวหน้าจะเห็นว่าอยู่นอกร้าน`;
+    preview();
+  };
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      p => { C.lat = p.coords.latitude; C.lng = p.coords.longitude; C.acc = p.coords.accuracy; gpsTxt(); },
+      () => { const el = $('#ckGps'); if(el) el.textContent = '📍 ไม่ได้รับตำแหน่ง — กดอนุญาตตำแหน่งในเบราว์เซอร์ · ยังบันทึกได้ แต่หัวหน้าจะต้องตรวจ'; },
+      { enableHighAccuracy:true, timeout:15000, maximumAge:30000 });
+  } else { $('#ckGps').textContent = '📍 เครื่องนี้หาตำแหน่งไม่ได้'; }
+  try{
+    const j = await clockApi({ action:'last' });
+    if(!j.ok) throw new Error(j.msg);
+    C.geo = (j.branches||[]).find(b => nkey(b.name)===nkey(S.loc.name)) || null; gpsTxt();
+    const L = j.last;
+    $('#ckLast').innerHTML = L ? `วันนี้กด<b>${L.type==='IN'?'เข้างาน':'ออกงาน'}</b>ล่าสุด <b>${esc(L.time)} น.</b>` : '<span class="mut">วันนี้ยังไม่ได้กด</span>';
+    setT(L && L.type==='IN' ? 'OUT' : 'IN');
+  }catch(err){
+    const el = $('#ckLast'); if(el) el.innerHTML = `<span class="mut">ดูรายการล่าสุดไม่ได้ (${esc(errMsg(err))})</span>`;
+    setT('IN');
+  }
+  $('#ckGo').onclick = async () => {
+    const btn = $('#ckGo'); busy(btn, true);
+    try{
+      const photo = await blobB64(await stampPhoto(C.file, stampLines()));
+      const j = await clockApi({ action:'submit', type:C.type, branch:S.loc.name, note:$('#ckN').value,
+        lat:C.lat, lng:C.lng, acc:C.acc, photo });
+      if(!j.ok) throw new Error(j.msg);
+      app.innerHTML = header('เช็คชื่อ', '', viewHome) + `<main>
+        <div class="card" style="text-align:center;padding:28px 14px">
+          <div style="font-size:56px">${j.type==='IN'?'🟢':'🔴'}</div>
+          <div style="font-size:19px;font-weight:600;margin-top:6px">${j.type==='IN'?'เข้างาน':'ออกงาน'} · ${esc(j.name)}</div>
+          <div style="font-size:38px;font-weight:700;margin:6px 0">${esc(j.time)} น.</div>
+          <div class="mut">${esc(S.loc.name)}</div>
+          ${j.flag ? `<div class="note" style="margin-top:14px">${esc(j.flag)} — แจ้งหัวหน้าแล้ว</div>` : ''}
+        </div>
+        <button class="btn" id="ckOk">กลับหน้าแรก</button></main>`;
+      wire(viewHome); $('#ckOk').onclick = viewHome;
+    }catch(err){ busy(btn, false, 'ยืนยัน'); toast(errMsg(err),'bad'); }
+  };
+}
+
+/* ── ส่งข้อมูลพนักงานเข้าชีตเงินเดือนด้วย (เพิ่มที่เดียว เข้าทุกระบบ) ── */
+async function paySync(p, oldNick, owner){
+  const body = { action:'staffUpsert', nickname:p.nickname, oldNickname:oldNick||'', burmese_name:p.burmese_name,
+    full_name:p.full_name, phone:p.phone, job_type:p.job_type };
+  if(owner){
+    const g = id => { const el = document.getElementById(id); return el ? el.value.trim() : undefined; };
+    body.pay = { payType:g('f_pt'), salary:g('f_sal'), hourly:g('f_hr'), start:g('f_start'),
+      bank:g('f_bank'), acct:g('f_acct'), bday:g('f_bday'), idcard:g('f_idc') };
+  }
+  try{ const j = await clockApi(body); if(!j.ok) throw new Error(j.msg); }
+  catch(err){ toast('บันทึกในแอปแล้ว แต่ส่งเข้าชีตเงินเดือนไม่สำเร็จ: '+errMsg(err),'bad'); }
+}
+async function payStatus(nick, active){
+  try{ const j = await clockApi({ action:'staffStatus', nickname:nick, active }); if(!j.ok) throw new Error(j.msg); }
+  catch(err){ toast('ชีตเงินเดือนยังไม่อัปเดต: '+errMsg(err),'bad'); }
+}
+function payToggle(root){
+  const t = root.querySelector('#f_pt'), w = root.querySelector('#f_salw');
+  if(t && w) w.style.display = t.value==='เงินเดือน' ? '' : 'none';
+}
+async function payPrefill(root, nick){
+  try{
+    const j = await clockApi({ action:'staffGet', nickname:nick });
+    if(!j.ok || !j.pay) return;
+    const P = j.pay, set = (id, v) => { const el = root.querySelector('#'+id); if(el && v!=null && v!=='') el.value = v; };
+    set('f_pt', P.payType || 'รายชั่วโมง'); set('f_sal', P.salary); set('f_hr', P.hourly); set('f_start', P.start);
+    set('f_bank', P.bank); set('f_acct', P.acct); set('f_bday', P.bday); set('f_idc', P.idcard);
+    payToggle(root);
+  }catch(e){}
+}
+const PAY_FORM = isNew => `<div class="card" style="margin:4px 0 12px">
+    <h3 style="margin:0 0 4px">💰 ค่าจ้าง · ข้อมูลส่วนตัว</h3>
+    <div class="xs mut" style="margin-bottom:10px">เข้าชีตเงินเดือนให้เอง · เห็นเฉพาะเจ้าของ</div>
+    <div class="fld"><label class="fl">ประเภทค่าจ้าง</label>
+      <select id="f_pt"><option value="รายชั่วโมง">รายชั่วโมง</option><option value="เงินเดือน">เงินเดือน</option></select></div>
+    <div class="fld" id="f_salw" style="display:none"><label class="fl">เงินเดือน (บาท)</label><input id="f_sal" type="number" inputmode="decimal" placeholder="เช่น 11000"></div>
+    <div class="fld"><label class="fl">เรทรายชั่วโมง (บาท) · ใช้คิด OT ด้วย</label><input id="f_hr" type="number" inputmode="decimal" value="${isNew?'50':''}"></div>
+    <div class="fld"><label class="fl">วันเริ่มงาน</label><input id="f_start" type="date" value="${isNew?today():''}"></div>
+    <div class="fld"><label class="fl">ธนาคาร</label><input id="f_bank" placeholder="เช่น กสิกรไทย"></div>
+    <div class="fld"><label class="fl">เลขบัญชี</label><input id="f_acct" inputmode="numeric"></div>
+    <div class="fld"><label class="fl">วันเกิด</label><input id="f_bday" type="date"></div>
+    <div class="fld"><label class="fl">เลขบัตรประชาชน</label><input id="f_idc" inputmode="numeric" maxlength="17"></div>
+  </div>`;
+
+
+/* ============================================================
+   📊 ข้อมูลของฉัน — เวลาทำงาน · คอม · เงินแต่ละงวด (เห็นแค่ของตัวเอง ยืนยันตัวตนที่เซิร์ฟเวอร์)
+   ============================================================ */
+async function scMine(){
+  app.innerHTML = header('ข้อมูลของฉัน', '', viewHome) + `<main><div class="card"><span class="mut">กำลังโหลด…</span></div></main>`;
+  wire(viewHome);
+  let j;
+  try{ j = await clockApi({ action:'me' }); if(!j.ok) throw new Error(j.msg); }
+  catch(err){ app.querySelector('main').innerHTML = `<div class="card"><span class="mut">โหลดไม่ได้ (${esc(errMsg(err))})</span></div>`; return; }
+  const D = j.data || {};
+  const MO = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const moTh = m => { const p = String(m||'').split('-'); return (MO[+p[1]]||'') + ' ' + (p[0]||''); };
+  const n2 = v => { const x = num(v); return x ? fmt(x,2) : '0'; };
+  let cur = 'time';
+  function vTime(){
+    const days = D.days || [];
+    if(!days.length) return '<div class="card"><span class="mut">ยังไม่มีข้อมูลเวลาทำงาน</span></div>';
+    const byMo = {};
+    days.forEach(d => { const m = String(d.d).slice(0,7); (byMo[m] = byMo[m] || []).push(d); });
+    return Object.keys(byMo).sort().reverse().map(m => {
+      const L = byMo[m];
+      const hrs = L.reduce((s,d)=>s+num(d.hrs),0), late = L.reduce((s,d)=>s+num(d.late),0), lateN = L.filter(d=>num(d.late)>0).length;
+      return `<div class="card"><h3>${moTh(m)}</h3>
+        <div class="row sp" style="margin:6px 0 10px">
+          <div><div class="xs mut">มาทำงาน</div><b>${L.length} วัน</b></div>
+          <div><div class="xs mut">ชั่วโมงรวม</div><b>${fmt(hrs,1)}</b></div>
+          <div><div class="xs mut">สาย</div><b class="${late?'diffneg':''}">${fmt(late)} นาที</b><div class="xs mut">${lateN} ครั้ง</div></div>
+        </div>
+        ${L.map(d => `<div style="border-top:1px solid var(--line);padding:8px 0">
+          <div class="row sp"><b>${ddmm(d.d)}</b><span>${esc(d.cin||'—')} – ${esc(d.cout||'—')}</span><b>${esc(d.hrs||'0')} ชม.</b></div>
+          <div class="xs mut">${esc(d.br)}${num(d.late)?` · <span class="diffneg">สาย ${esc(d.late)} นาที</span>`:''}${num(d.ot)?` · OT ${esc(d.ot)} นาที`:''}${d.note?` · ${esc(d.note)}`:''}</div>
+        </div>`).join('')}
+      </div>`;
+    }).join('');
+  }
+  function vComm(){
+    const c = D.comm || { items:[], total:0 };
+    const items = c.items || [];
+    return `<div class="card"><h3>คอมมิชชั่น ${moTh(c.month || D.month)}</h3>
+        <div style="font-size:30px;font-weight:700;margin:6px 0">${fmt(c.total,2)} บาท</div>
+        <div class="xs mut">นับจากบิลที่ออกตอนคุณเช็คชื่ออยู่ · อยู่ 2 คนหารครึ่ง · อัปเดตทุกครั้งที่นำเข้ายอดขาย · จ่ายพร้อมงวด 16-สิ้นเดือน</div></div>` +
+      (items.length ? `<div class="card"><h3>ได้จากสินค้า</h3>${items.map(x => `<div class="row sp" style="border-top:1px solid var(--line);padding:8px 0">
+          <span>${esc(x.item)}<div class="xs mut">${fmt(x.qty)} ชิ้น</div></span><b>${fmt(x.amt,2)}</b></div>`).join('')}</div>`
+        : '<div class="card"><span class="mut">เดือนนี้ยังไม่มีคอม</span></div>');
+  }
+  function vPay(){
+    const P = D.pays || [];
+    if(!P.length) return '<div class="card"><span class="mut">ยังไม่มีข้อมูลงวดจ่าย</span></div>';
+    const line = (k, v, neg) => num(v) ? `<div class="row sp" style="padding:3px 0"><span class="mut">${k}</span><span class="${neg?'diffneg':''}">${neg?'−':''}${n2(v)}</span></div>` : '';
+    return `<div class="note">งวดที่ยังไม่ถึงวันโอนเป็นยอดประมาณการ อาจเปลี่ยนได้จนกว่าเจ้าของจะยืนยัน</div>` +
+      P.map(p => {
+        const lb = String(p.label||''), pd = String(p.payDate||'');
+        const adj = num(p.adj);
+        return `<div class="card">
+          <h3 style="margin:0">${esc(moTh(lb.slice(0,7)) + lb.slice(7))}</h3>
+          <div class="xs mut">โอนวันที่ ${esc(ddmm(pd))}/${esc(pd.slice(0,4))} · ${esc(p.days)} วัน · ${esc(p.hrs)} ชม.</div>
+          <div style="margin-top:8px">
+            ${line('ค่าจ้าง', p.base)}${line('ค่า OT', p.ot)}${line('เบี้ยขยัน', p.bonus)}${line('คอมมิชชั่น', p.comm)}
+            ${adj>0 ? line('ปรับเพิ่ม', adj) : ''}${adj<0 ? line('ปรับลด', -adj, true) : ''}
+            ${line('หัก (สาย / ขาด ฯลฯ)', p.ded, true)}${line('เบิกไปแล้ว', p.adv, true)}${line('หัก ณ ที่จ่าย 3%', p.wht, true)}
+          </div>
+          <div class="row sp" style="border-top:1px solid var(--line);margin-top:6px;padding-top:8px"><b>ได้รับจริง</b><b style="font-size:20px">${n2(p.final || p.net)} บาท</b></div>
+          ${p.detail ? `<div class="xs mut" style="margin-top:6px">${esc(p.detail)}</div>` : ''}
+        </div>`;
+      }).join('');
+  }
+  const TAB = { time: vTime, comm: vComm, pay: vPay };
+  function draw(){
+    app.querySelector('main').innerHTML = `
+      <div class="tabs" id="mT" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px">
+        <button type="button" data-k="time" class="${cur==='time'?'on':''}">⏱ เวลาทำงาน</button>
+        <button type="button" data-k="comm" class="${cur==='comm'?'on':''}">💰 คอม</button>
+        <button type="button" data-k="pay" class="${cur==='pay'?'on':''}">🧾 เงินแต่ละงวด</button>
+      </div>` + TAB[cur]() +
+      `<div class="xs mut" style="margin-top:10px;text-align:center">ข้อมูลของ ${esc(j.name)} · อัปเดต ${esc(D.updated||'')}</div>`;
+    $('#mT').onclick = e => { const b = e.target.closest('button'); if(!b) return; cur = b.dataset.k; draw(); };
+  }
+  draw();
+}
+
+
 function shrink(file, max=1280, q=.72){
   return new Promise((res,rej)=>{
     const img = new Image();
@@ -2424,13 +2694,13 @@ function menuStaff(r){
     }
     if(a==='term'){
       if(!confirm(`แจ้ง ${r.nickname} ออกจากงาน?\nชื่อในใบเก่ายังอยู่ครบ แต่จะเข้าระบบไม่ได้อีก`)) return;
-      busy(b,true,'แจ้งออก'); try{ await staffApi({action:'terminate', employee_id:r.employee_id});
+      busy(b,true,'แจ้งออก'); try{ await staffApi({action:'terminate', employee_id:r.employee_id}); await payStatus(r.nickname, false);
         s.close(); toast(`บันทึกว่า ${r.nickname} ออกแล้ว`,'ok'); await loadStaff();
       }catch(err){ busy(b,false,'แจ้งออก'); toast(errMsg(err),'bad'); }
       return;
     }
     if(a==='back'){
-      busy(b,true,'กลับเข้าทำงาน'); try{ await staffApi({action:'reactivate', employee_id:r.employee_id});
+      busy(b,true,'กลับเข้าทำงาน'); try{ await staffApi({action:'reactivate', employee_id:r.employee_id}); await payStatus(r.nickname, true);
         s.close(); toast(`${r.nickname} กลับเข้าทำงานแล้ว`,'ok'); await loadStaff();
       }catch(err){ busy(b,false,'กลับเข้าทำงาน'); toast(errMsg(err),'bad'); }
     }
@@ -2480,10 +2750,12 @@ function formStaff(r){
       <select id="f_role">${ROLE_LIST.filter(x=>canOwner||x[0]!=='owner')
         .map(([k,nm])=>`<option value="${k}">${esc(nm)}</option>`).join('')}</select></div>
     <div class="note">พอบันทึกแล้ว ระบบจะสร้าง <b>รหัส 6 หลัก</b> ให้ทันที เอาไว้ส่งให้น้อง</div>`:''}
+    ${canOwner ? PAY_FORM(isNew) : ''}
     <button class="btn" id="f_save">${isNew?'เพิ่มพนักงาน':'บันทึกการแก้ไข'}</button>
     <button class="btn gh sm2" id="f_x">ยกเลิก</button>`);
 
   s.el.querySelector('#f_x').onclick = s.close;
+  if(canOwner){ const pt = s.el.querySelector('#f_pt'); if(pt) pt.onchange = () => payToggle(s.el); if(!isNew) payPrefill(s.el, r.nickname); }
   s.el.querySelector('#f_save').onclick = async e => {
     const b = e.target;
     const p = {
@@ -2499,9 +2771,11 @@ function formStaff(r){
     try{
       if(isNew){
         const res = await staffApi({ action:'add', ...p, role: $('#f_role').value });
+        await paySync(p, '', canOwner);
         s.close(); await loadStaff(); await afterAdd(res);
       }else{
         await staffApi({ action:'edit', employee_id:r.employee_id, ...p });
+        await paySync(p, r.nickname, canOwner);
         s.close(); toast('บันทึกแล้ว','ok'); await loadStaff();
       }
     }catch(err){ busy(b,false, isNew?'เพิ่มพนักงาน':'บันทึกการแก้ไข'); toast(errMsg(err),'bad'); }

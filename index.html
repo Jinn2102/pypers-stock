@@ -103,7 +103,7 @@ td.n,th.n{text-align:right}
   padding:16px 8px;font-size:17px;font-weight:600;font-family:inherit;cursor:pointer}
 .names button:active{background:var(--acc)}
 .sheet{position:fixed;inset:0;background:rgba(17,20,24,.55);display:flex;align-items:flex-end;justify-content:center;z-index:60;padding:0}
-.sheetbox{background:var(--card,#fff);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+.sheetbox{background:var(--card,#fff);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.18);max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px);overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .tok{font:700 34px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.22em;text-align:center;padding:14px 0 6px}
 .sheetbox .btn{margin-top:8px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:99;
